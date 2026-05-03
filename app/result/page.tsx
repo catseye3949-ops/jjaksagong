@@ -115,7 +115,7 @@ export default async function ResultPage({ searchParams }: ResultPageProps) {
   const birthdate = params.birthdate || "";
   const birthtime = params.birthtime || "";
   const gender: Gender = params.gender === "female" ? "female" : "male";
-  const isPaid = params.isPaid === "true" ? false : true;
+  const isPaid = params.isPaid === "true";
 
   const dayPillarParam = params.dayPillar?.trim() || "";
   const dayPillarFromQuery =
@@ -294,29 +294,25 @@ export default async function ResultPage({ searchParams }: ResultPageProps) {
                 ) : null}
 
                 {card.loveStrategy && strategySections.length > 0 ? (
-                  <div className={!isPaid ? "relative overflow-hidden rounded-3xl" : ""}>
-                    {!isPaid ? (
-                      <div className="pointer-events-none absolute inset-0 z-10 rounded-3xl bg-[#0b1020]/40 backdrop-blur-[1px]" />
-                    ) : null}
-                    <LoveStrategyCard
-                      title={`${name} 연애 공략`}
-                      hookLabel={`${name}님을 사로잡을 수 있는 한 마디`}
-                      oneLineHook={oneLineHook}
-                      practicalTips={practicalTips}
-                      sections={strategySections}
-                      isPaid={isPaid}
-                      unlockSlot={
-                        !isPaid && canOfferPurchase ? (
-                          <PaidReportUnlockButton
-                            name={name}
-                            birthdate={birthdate}
-                            birthtime={birthtime}
-                            gender={gender}
-                          />
-                        ) : undefined
-                      }
-                    />
-                  </div>
+                  <LoveStrategyCard
+                    title={`${name} 연애 공략`}
+                    hookLabel={`${name}님을 사로잡을 수 있는 한 마디`}
+                    oneLineHook={oneLineHook}
+                    practicalTips={practicalTips}
+                    sections={strategySections}
+                    isPaid={isPaid}
+                    unlockSlot={
+                      !isPaid && canOfferPurchase ? (
+                        <PaidReportUnlockButton
+                          variant="overlay"
+                          name={name}
+                          birthdate={birthdate}
+                          birthtime={birthtime}
+                          gender={gender}
+                        />
+                      ) : undefined
+                    }
+                  />
                 ) : null}
               </div>
             ) : (
@@ -332,8 +328,13 @@ export default async function ResultPage({ searchParams }: ResultPageProps) {
                 <p>
                   지금 보시는 건 <span className="font-semibold text-white">무료 미리보기</span>
                   입니다. 프리미엄 리포트를 저장하면 공략 전체가 풀리고,{" "}
-                  <span className="font-semibold text-white">마이페이지</span>에서
-                  언제든 다시 열어볼 수 있어요.
+                  <Link
+                    href="/mypage"
+                    className="inline-block rounded px-1.5 py-1.5 font-semibold text-violet-300 underline decoration-violet-300/60 underline-offset-2 transition hover:text-violet-200 hover:decoration-violet-200 sm:py-1"
+                  >
+                    마이페이지
+                  </Link>
+                  에서 언제든 다시 열어볼 수 있어요.
                 </p>
                 {!canOfferPurchase && dayPillarFromQuery ? (
                   <p className="mt-3 text-fuchsia-100/90">
@@ -352,8 +353,13 @@ export default async function ResultPage({ searchParams }: ResultPageProps) {
             {isPaid && card && (
               <div className="mt-4 rounded-2xl border border-emerald-300/30 bg-emerald-500/10 p-4 text-sm leading-relaxed text-emerald-100">
                 프리미엄 리포트가 열렸어요. 이 공략은 계정에 남으니, 나중에{" "}
-                <span className="font-semibold text-white">마이페이지</span>에서도
-                천천히 다시 읽어보실 수 있어요.
+                <Link
+                  href="/mypage"
+                  className="inline-block rounded px-1.5 py-1.5 font-semibold text-violet-300 underline decoration-violet-300/60 underline-offset-2 transition hover:text-violet-200 hover:decoration-violet-200 sm:py-1"
+                >
+                  마이페이지
+                </Link>
+                에서도 천천히 다시 읽어보실 수 있어요.
               </div>
             )}
 
@@ -367,21 +373,6 @@ export default async function ResultPage({ searchParams }: ResultPageProps) {
             </div>
           </section>
 
-          {!isPaid && card && canOfferPurchase ? (
-            <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30 flex justify-center">
-              <div className="pointer-events-auto w-full max-w-[430px] border-t border-white/10 bg-[#130a19]/95 px-5 py-4 backdrop-blur-xl">
-                <p className="mb-2 text-center text-sm font-semibold text-white">
-                  이 사람 공략 리포트 보기 · 3,900원
-                </p>
-                <PaidReportUnlockButton
-                  name={name}
-                  birthdate={birthdate}
-                  birthtime={birthtime}
-                  gender={gender}
-                />
-              </div>
-            </div>
-          ) : null}
         </div>
       </section>
 
@@ -483,6 +474,7 @@ export default async function ResultPage({ searchParams }: ResultPageProps) {
                   unlockSlot={
                     !isPaid && canOfferPurchase ? (
                       <PaidReportUnlockButton
+                        variant="overlay"
                         name={name}
                         birthdate={birthdate}
                         birthtime={birthtime}
@@ -506,8 +498,13 @@ export default async function ResultPage({ searchParams }: ResultPageProps) {
               <p>
                 지금 보시는 건 <span className="font-semibold text-white">무료 미리보기</span>
                 입니다. 프리미엄 리포트를 저장하면 공략 전체가 풀리고,{" "}
-                <span className="font-semibold text-white">마이페이지</span>에서 언제든
-                다시 열어볼 수 있어요.
+                <Link
+                  href="/mypage"
+                  className="inline-block rounded px-1.5 py-1.5 font-semibold text-violet-300 underline decoration-violet-300/60 underline-offset-2 transition hover:text-violet-200 hover:decoration-violet-200 sm:py-1"
+                >
+                  마이페이지
+                </Link>
+                에서 언제든 다시 열어볼 수 있어요.
               </p>
               {!canOfferPurchase && dayPillarFromQuery ? (
                 <p className="mt-3 text-fuchsia-100/90">
@@ -526,8 +523,13 @@ export default async function ResultPage({ searchParams }: ResultPageProps) {
           {isPaid && card && (
             <div className="mt-6 rounded-2xl border border-emerald-300/30 bg-emerald-500/10 p-4 text-sm leading-relaxed text-emerald-100">
               프리미엄 리포트가 열렸어요. 이 공략은 계정에 남으니, 나중에{" "}
-              <span className="font-semibold text-white">마이페이지</span>에서도
-              천천히 다시 읽어보실 수 있어요.
+              <Link
+                href="/mypage"
+                className="inline-block rounded px-1.5 py-1.5 font-semibold text-violet-300 underline decoration-violet-300/60 underline-offset-2 transition hover:text-violet-200 hover:decoration-violet-200 sm:py-1"
+              >
+                마이페이지
+              </Link>
+              에서도 천천히 다시 읽어보실 수 있어요.
             </div>
           )}
 

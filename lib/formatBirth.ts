@@ -17,3 +17,31 @@ export function formatBirthDisplay(iso: string) {
   if (!y || !m || !d) return iso;
   return `${y}.${m}.${d}`;
 }
+
+/**
+ * 생년월일(YYYY-MM-DD 등) 기준 만 나이. 생일이 아직 오지 않았으면 1살 차감.
+ */
+export function getManAgeFromIsoDate(iso: string): number | null {
+  const normalized = iso.trim().replace(/\./g, "-").replace(/\//g, "-");
+  const parts = normalized.split("-").map((s) => s.trim());
+  if (parts.length !== 3) return null;
+  const y = Number(parts[0]);
+  const mo = Number(parts[1]);
+  const d = Number(parts[2]);
+  if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) {
+    return null;
+  }
+  const birth = new Date(y, mo - 1, d);
+  if (Number.isNaN(birth.getTime())) return null;
+
+  const today = new Date();
+  let age = today.getFullYear() - birth.getFullYear();
+  const monthDiff = today.getMonth() - birth.getMonth();
+  if (
+    monthDiff < 0 ||
+    (monthDiff === 0 && today.getDate() < birth.getDate())
+  ) {
+    age -= 1;
+  }
+  return age >= 0 ? age : null;
+}

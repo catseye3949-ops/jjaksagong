@@ -88,8 +88,14 @@ export default function Home() {
 
         <div className="relative mx-auto min-h-screen max-w-[430px] border-x border-white/10 bg-gradient-to-b from-[#1a0a16] via-[#170a1f] to-[#10091a] shadow-[0_20px_80px_rgba(0,0,0,0.45)]">
           <header className="flex items-center justify-between px-5 pb-2 pt-4">
-            <p className="text-sm font-semibold tracking-wide text-white/95">짝사공</p>
-            <span className="h-2 w-2 rounded-full bg-fuchsia-400 shadow-[0_0_10px_rgba(232,121,249,0.9)]" />
+            <Link href="/" className="shrink-0">
+              <img
+                src="/images/logo/logo%201.png"
+                alt="짝사공 로고"
+                className="h-10 md:h-12 w-auto object-contain"
+              />
+            </Link>
+            <span className="h-2 w-2 shrink-0 rounded-full bg-fuchsia-400 shadow-[0_0_10px_rgba(232,121,249,0.9)]" />
           </header>
 
           <div className="px-5 pb-44 pt-4">

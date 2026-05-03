@@ -11,20 +11,29 @@ import {
 import type { UserAccount } from "../lib/domain/user";
 import { STORAGE_SESSION_KEY, STORAGE_USERS_KEY } from "../lib/storage/keys";
 import {
-  loginWithEmail,
+  loginWithCredentials,
   logout as logoutStore,
   readSessionEmail,
   readUsers,
   signupUser,
+  updateUserDisplayName,
   type SignupInput,
 } from "../lib/storage/userStore";
 
 type AuthContextValue = {
   user: UserAccount | null;
   isReady: boolean;
-  login: (email: string) => { ok: true } | { ok: false; error: string };
+  login: (
+    email: string,
+    password: string,
+  ) => Promise<{ ok: true } | { ok: false; error: string }>;
   logout: () => void;
-  signup: (input: SignupInput) => { ok: true } | { ok: false; error: string };
+  signup: (
+    input: SignupInput,
+  ) => Promise<{ ok: true } | { ok: false; error: string }>;
+  updateDisplayName: (
+    nextName: string,
+  ) => { ok: true } | { ok: false; error: string };
   refresh: () => void;
 };
 
@@ -72,13 +81,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  const login = useCallback((email: string) => loginWithEmail(email), []);
+  const login = useCallback(
+    (email: string, password: string) => loginWithCredentials(email, password),
+    [],
+  );
 
   const logout = useCallback(() => {
     logoutStore();
   }, []);
 
   const signup = useCallback((input: SignupInput) => signupUser(input), []);
+
+  const updateDisplayName = useCallback(
+    (nextName: string) => {
+      const email = readSessionEmail();
+      if (!email) {
+        return { ok: false as const, error: "로그인이 필요합니다." };
+      }
+      const result = updateUserDisplayName(email, nextName);
+      if (result.ok) refresh();
+      return result;
+    },
+    [refresh],
+  );
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -87,9 +112,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       login,
       logout,
       signup,
+      updateDisplayName,
       refresh,
     }),
-    [user, isReady, login, logout, signup, refresh],
+    [user, isReady, login, logout, signup, updateDisplayName, refresh],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

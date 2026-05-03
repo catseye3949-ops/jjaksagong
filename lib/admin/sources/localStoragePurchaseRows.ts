@@ -21,7 +21,7 @@ export function mapUserRecordToPurchaseReportRows(
         purchasedAt: r.purchasedAt,
         amountWon: DEMO_REPORT_PRICE_WON,
         buyerEmail: buyer.email,
-        buyerNickname: buyer.nickname,
+        buyerNickname: buyer.name || buyer.nickname,
         partnerName: r.name,
         ilju: r.ilju?.trim() ? r.ilju : "(미상)",
         subjectGender: r.gender,

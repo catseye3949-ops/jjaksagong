@@ -5,13 +5,19 @@
  * @see mapDbToServiceStatsRows (stub) — 구매/리포트 JOIN 결과를 ServiceStatsPurchaseRow[] 로 변환
  */
 
-import type { Gender } from "../domain/user";
+import type { Gender, ProfileGender } from "../domain/user";
 
 /** users — 계정 */
 export type DbUserRow = {
   id: string;
   email: string;
   nickname: string;
+  /** 회원 표시명(이름 또는 별명) */
+  name?: string;
+  birth_date?: string | null;
+  profile_gender?: ProfileGender | null;
+  mbti?: string | null;
+  marketing_opt_in?: boolean | null;
   referral_code: string;
   referred_by: string | null;
   referral_reward_balance: number;

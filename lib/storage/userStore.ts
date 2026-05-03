@@ -1,4 +1,10 @@
-import type { Gender, PurchasedReport, UserAccount } from "../domain/user";
+import { digestPassword } from "../auth/digestPassword";
+import type {
+  Gender,
+  ProfileGender,
+  PurchasedReport,
+  UserAccount,
+} from "../domain/user";
 import {
   REFERRAL_REWARD_ON_REFEREE_FIRST_PURCHASE_KRW,
 } from "../domain/user";
@@ -82,8 +88,69 @@ function normalizeUserAccount(
 
   let changed = false;
 
-  const nickname = typeof u.nickname === "string" ? u.nickname : "사용자";
-  if (nickname !== u.nickname) changed = true;
+  const displayName =
+    typeof u.name === "string" && u.name.trim()
+      ? u.name.trim()
+      : typeof u.nickname === "string" && u.nickname.trim()
+        ? u.nickname.trim()
+        : "사용자";
+  const name = displayName;
+  const nickname = displayName;
+  if (typeof u.name !== "string" && typeof u.nickname === "string" && u.nickname) {
+    changed = true;
+  }
+
+  const passwordDigest =
+    typeof u.passwordDigest === "string" && u.passwordDigest
+      ? u.passwordDigest
+      : undefined;
+  if (
+    (passwordDigest ?? "") !==
+    (typeof u.passwordDigest === "string" ? u.passwordDigest : "")
+  ) {
+    changed = true;
+  }
+
+  const birthDate =
+    typeof u.birthDate === "string" && u.birthDate.trim()
+      ? u.birthDate.trim()
+      : undefined;
+  if (birthDate !== u.birthDate) changed = true;
+
+  const profileGenderRaw = u.profileGender;
+  let profileGender: ProfileGender | undefined;
+  if (
+    profileGenderRaw === "male" ||
+    profileGenderRaw === "female" ||
+    profileGenderRaw === "none"
+  ) {
+    profileGender = profileGenderRaw;
+  } else {
+    profileGender = undefined;
+  }
+  if (profileGender !== profileGenderRaw) changed = true;
+
+  const birthTime =
+    typeof u.birthTime === "string" && u.birthTime.trim()
+      ? u.birthTime.trim()
+      : undefined;
+  if (birthTime !== u.birthTime) changed = true;
+
+  const mbti =
+    typeof u.mbti === "string" && u.mbti.trim() ? u.mbti.trim() : undefined;
+  if (mbti !== u.mbti) changed = true;
+
+  const marketingConsent =
+    typeof u.marketingConsent === "boolean" ? u.marketingConsent : undefined;
+  if (marketingConsent !== u.marketingConsent) changed = true;
+
+  const termsAgreed =
+    typeof u.termsAgreed === "boolean" ? u.termsAgreed : undefined;
+  if (termsAgreed !== u.termsAgreed) changed = true;
+
+  const privacyAgreed =
+    typeof u.privacyAgreed === "boolean" ? u.privacyAgreed : undefined;
+  if (privacyAgreed !== u.privacyAgreed) changed = true;
 
   let referralCode =
     typeof u.referralCode === "string" ? u.referralCode.trim() : "";
@@ -129,12 +196,21 @@ function normalizeUserAccount(
 
   const account: UserAccount = {
     email,
+    name,
     nickname,
     referralCode,
     referredBy,
     referralRewardBalance,
     referralSuccessCount,
     purchasedReports,
+    ...(passwordDigest ? { passwordDigest } : {}),
+    ...(birthDate ? { birthDate } : {}),
+    ...(profileGender ? { profileGender } : {}),
+    ...(birthTime ? { birthTime } : {}),
+    ...(mbti ? { mbti } : {}),
+    ...(marketingConsent !== undefined ? { marketingConsent } : {}),
+    ...(termsAgreed !== undefined ? { termsAgreed } : {}),
+    ...(privacyAgreed !== undefined ? { privacyAgreed } : {}),
   };
 
   return { account, changed };
@@ -216,21 +292,80 @@ export function findUserByReferralCode(
   );
 }
 
+export function updateUserDisplayName(
+  email: string,
+  nextDisplayName: string,
+): { ok: true } | { ok: false; error: string } {
+  if (typeof window === "undefined") {
+    return { ok: false, error: "브라우저에서만 변경할 수 있습니다." };
+  }
+  const trimmed = nextDisplayName.trim();
+  if (!trimmed) {
+    return { ok: false, error: "이름 또는 별명을 입력해 주세요." };
+  }
+  const key = email.trim().toLowerCase();
+  const users = readUsers();
+  const prev = users[key];
+  if (!prev) {
+    return { ok: false, error: "사용자를 찾을 수 없습니다." };
+  }
+  users[key] = { ...prev, name: trimmed, nickname: trimmed };
+  writeUsers(users);
+  notifyAuthChanged();
+  return { ok: true };
+}
+
 export type SignupInput = {
+  name: string;
   email: string;
-  nickname: string;
+  password: string;
+  birthDate: string;
+  gender: Extract<ProfileGender, "male" | "female">;
+  termsAgreed: boolean;
+  privacyAgreed: boolean;
+  birthTime?: string;
+  birthTimeUnknown?: boolean;
+  mbti?: string;
+  marketingConsent?: boolean;
   referredBy?: string | null;
 };
 
-export function signupUser(input: SignupInput): { ok: true } | { ok: false; error: string } {
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+export async function signupUser(
+  input: SignupInput,
+): Promise<{ ok: true } | { ok: false; error: string }> {
   if (typeof window === "undefined") {
     return { ok: false, error: "브라우저에서만 가입할 수 있습니다." };
   }
-  const email = input.email.trim().toLowerCase();
-  const nickname = input.nickname.trim();
-  if (!email || !nickname) {
-    return { ok: false, error: "이메일과 닉네임을 입력해주세요." };
+  if (!input.termsAgreed || !input.privacyAgreed) {
+    return {
+      ok: false,
+      error: "이용약관 및 개인정보 처리방침에 동의해 주세요.",
+    };
   }
+
+  const email = input.email.trim().toLowerCase();
+  const name = input.name.trim();
+  const password = input.password;
+  const birthDate = input.birthDate.trim();
+
+  if (!name) {
+    return { ok: false, error: "이름 또는 별명을 입력해 주세요." };
+  }
+  if (!email) {
+    return { ok: false, error: "이메일을 입력해 주세요." };
+  }
+  if (password.length < 6) {
+    return { ok: false, error: "비밀번호는 6자 이상으로 설정해 주세요." };
+  }
+  if (!DATE_RE.test(birthDate)) {
+    return { ok: false, error: "생년월일은 YYYY-MM-DD 형식으로 입력해 주세요." };
+  }
+  if (input.gender !== "male" && input.gender !== "female") {
+    return { ok: false, error: "성별을 선택해 주세요." };
+  }
+
   const users = readUsers();
   if (users[email]) {
     return { ok: false, error: "이미 가입된 이메일입니다." };
@@ -249,14 +384,30 @@ export function signupUser(input: SignupInput): { ok: true } | { ok: false; erro
     referredBy = null;
   }
 
+  const passwordDigest = await digestPassword(email, password);
+  const birthTime =
+    input.birthTimeUnknown || !input.birthTime?.trim()
+      ? undefined
+      : input.birthTime.trim();
+  const mbti = input.mbti?.trim() || undefined;
+
   const account: UserAccount = {
     email,
-    nickname,
+    name,
+    nickname: name,
     referralCode: uniqueReferralCode(users),
     referredBy,
     referralRewardBalance: 0,
     referralSuccessCount: 0,
     purchasedReports: [],
+    passwordDigest,
+    birthDate,
+    profileGender: input.gender,
+    ...(birthTime ? { birthTime } : {}),
+    ...(mbti ? { mbti } : {}),
+    marketingConsent: Boolean(input.marketingConsent),
+    termsAgreed: true,
+    privacyAgreed: true,
   };
 
   users[email] = account;
@@ -266,15 +417,32 @@ export function signupUser(input: SignupInput): { ok: true } | { ok: false; erro
   return { ok: true };
 }
 
-export function loginWithEmail(email: string): { ok: true } | { ok: false; error: string } {
+export async function loginWithCredentials(
+  email: string,
+  password: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
   if (typeof window === "undefined") {
     return { ok: false, error: "브라우저에서만 로그인할 수 있습니다." };
   }
   const key = email.trim().toLowerCase();
   const users = readUsers();
-  if (!users[key]) {
+  const acc = users[key];
+  if (!acc) {
     return { ok: false, error: "가입되지 않은 이메일입니다." };
   }
+
+  if (acc.passwordDigest) {
+    const d = await digestPassword(key, password);
+    if (d !== acc.passwordDigest) {
+      return { ok: false, error: "비밀번호가 일치하지 않습니다." };
+    }
+  } else if (password.trim() !== "") {
+    return {
+      ok: false,
+      error: "비밀번호를 비우고 다시 시도해 주세요.",
+    };
+  }
+
   writeSessionEmail(key);
   notifyAuthChanged();
   return { ok: true };

@@ -565,11 +565,6 @@ export default function CompatibilityPanel() {
       >
         궁합 흐름 확인하기
       </button>
-
-      <p className="text-center text-xs leading-relaxed text-slate-500">
-        생년월일을 기준으로 궁합 흐름을 참고용으로 확인할 수 있습니다. 상대
-        성향·접근 방식은 다음 화면에서 이어서 볼 수 있습니다.
-      </p>
     </form>
   );
 }

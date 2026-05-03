@@ -3,17 +3,31 @@
 import { useCallback, useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import type { Gender } from "../lib/domain/user";
+import { getManAgeFromIsoDate } from "../lib/formatBirth";
 import { compressPartnerPhotoFile } from "../lib/image/compressPartnerPhoto";
 import { updatePurchasedReportPhoto } from "../lib/storage/userStore";
 
 type PurchasedReportPhotoEditorProps = {
   reportId: string;
   gender: Gender;
+  partnerName: string;
+  /** YYYY-MM-DD — 만 나이 계산용 */
+  birthIso: string;
+  birthLabel: string;
 };
+
+function reportGenderShort(g: Gender): string {
+  if (g === "male") return "남";
+  if (g === "female") return "여";
+  return "-";
+}
 
 export default function PurchasedReportPhotoEditor({
   reportId,
   gender,
+  partnerName,
+  birthIso,
+  birthLabel,
 }: PurchasedReportPhotoEditorProps) {
   const { user, refresh } = useAuth();
   const [busy, setBusy] = useState(false);
@@ -32,6 +46,15 @@ export default function PurchasedReportPhotoEditor({
     setSavedFlash(true);
     window.setTimeout(() => setSavedFlash(false), 2200);
   }, []);
+
+  const manAge = getManAgeFromIsoDate(birthIso);
+  const genderShort = reportGenderShort(gender);
+  const ageGenderLine = (() => {
+    const parts: string[] = [];
+    if (manAge !== null) parts.push(`${manAge}살`);
+    if (genderShort !== "-") parts.push(genderShort);
+    return parts.join(" · ");
+  })();
 
   const onPick = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -60,61 +83,47 @@ export default function PurchasedReportPhotoEditor({
     flashSaved();
   };
 
-  const onRemove = () => {
-    if (!user) return;
-    setError(null);
-    const updated = updatePurchasedReportPhoto(user.email, reportId, null);
-    if (!updated.ok) {
-      setError(updated.error);
-      return;
-    }
-    refresh();
-    flashSaved();
-  };
-
   return (
-    <div className="flex flex-wrap items-center gap-3">
-      <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-full border border-fuchsia-300/30 bg-white/5">
-        <img
-          src={previewUrl || placeholder}
-          alt=""
-          className="h-full w-full object-cover"
-        />
-      </div>
-      <div className="min-w-0 flex-1 space-y-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <input
-            type="file"
-            accept="image/*"
-            className="hidden"
-            id={`report-photo-${reportId}`}
-            onChange={onPick}
+    <div className="flex min-w-0 flex-1 items-start gap-4">
+      <div className="flex w-[4.5rem] shrink-0 flex-col items-center gap-1.5">
+        <div className="relative h-14 w-14 overflow-hidden rounded-full border border-fuchsia-300/30 bg-white/5">
+          <img
+            src={previewUrl || placeholder}
+            alt=""
+            className="h-full w-full object-cover"
           />
-          <label
-            htmlFor={`report-photo-${reportId}`}
-            className="cursor-pointer rounded-xl border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-medium text-white/90 transition hover:border-fuchsia-300/40"
-          >
-            사진 변경
-          </label>
-          {previewUrl ? (
-            <button
-              type="button"
-              onClick={onRemove}
-              className="rounded-xl border border-white/10 px-3 py-1.5 text-xs text-white/55 transition hover:text-white/85"
-            >
-              기본 이미지
-            </button>
+        </div>
+        <input
+          type="file"
+          accept="image/*"
+          className="hidden"
+          id={`report-photo-${reportId}`}
+          onChange={onPick}
+        />
+        <label
+          htmlFor={`report-photo-${reportId}`}
+          className="cursor-pointer text-center text-xs text-white/90 opacity-70 transition hover:opacity-100"
+        >
+          사진 변경
+        </label>
+        {busy || savedFlash ? (
+          <p className="text-center text-[10px] leading-snug text-white/45">
+            {busy ? "압축·저장 중…" : "저장했어요."}
+          </p>
+        ) : null}
+      </div>
+      <div className="min-w-0 flex-1 space-y-1 pt-0.5">
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+          <span className="min-w-0 text-sm font-semibold text-white [overflow-wrap:anywhere]">
+            {partnerName}
+          </span>
+          {ageGenderLine ? (
+            <span className="text-xs text-white/70">{ageGenderLine}</span>
           ) : null}
         </div>
-        <p className="text-[11px] text-white/40">
-          {busy
-            ? "압축·저장 중…"
-            : savedFlash
-              ? "저장했어요."
-              : "선택 즉시 반영돼요."}
-        </p>
+        <p className="text-xs text-white/55">({birthLabel})</p>
         {error ? (
-          <p className="text-[11px] text-rose-300/90" role="alert">
+          <p className="pt-1 text-[11px] text-rose-300/90" role="alert">
             {error}
           </p>
         ) : null}

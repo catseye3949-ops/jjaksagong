@@ -1,3 +1,6 @@
+/** 회원가입 폼 임시 저장 (브라우저 뒤로가기 등) */
+export const STORAGE_SIGNUP_FORM_KEY = "signupForm";
+
 export const STORAGE_USERS_KEY = "jjak_users_v1";
 export const STORAGE_SESSION_KEY = "jjak_session_v1";
 /** Session-only pending upload before result / checkout (base64 data URL) */
