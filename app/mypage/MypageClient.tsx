@@ -4,8 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../../contexts/AuthContext";
-import PurchasedReportPhotoEditor from "../../components/PurchasedReportPhotoEditor";
-import { formatBirthDisplay } from "../../lib/formatBirth";
+import PurchasedReportsList from "../../components/PurchasedReportsList";
 
 async function copyTextToClipboard(text: string): Promise<boolean> {
   try {
@@ -295,47 +294,16 @@ export default function MypageClient() {
             </Link>
           </div>
 
-          {user.purchasedReports.length === 0 ? (
-            <p className="mt-4 text-sm text-white/55">
-              아직 저장된 리포트가 없어요. 결과 페이지에서 유료 리포트를
-              결제하면 여기에 쌓입니다.
-            </p>
-          ) : (
-            <ul className="mt-4 space-y-2">
-              {user.purchasedReports.map((r) => {
-                const q = new URLSearchParams();
-                q.set("name", r.name);
-                q.set("birthdate", r.birth);
-                if (r.birthtime) q.set("birthtime", r.birthtime);
-                q.set("gender", r.gender);
-                q.set("isPaid", "true");
-                q.set("reportId", r.id);
-                const href = `/result?${q.toString()}`;
-                return (
-                  <li
-                    key={r.id}
-                    className="overflow-hidden rounded-2xl border border-white/10 bg-white/5"
-                  >
-                    <div className="flex items-start justify-between gap-3 px-4 py-4">
-                      <PurchasedReportPhotoEditor
-                        reportId={r.id}
-                        gender={r.gender}
-                        partnerName={r.name}
-                        birthIso={r.birth}
-                        birthLabel={formatBirthDisplay(r.birth)}
-                      />
-                      <Link
-                        href={href}
-                        className="shrink-0 self-center rounded-lg px-2 py-2 text-xs font-medium text-fuchsia-200/90 transition hover:bg-white/10 hover:text-fuchsia-100 sm:py-1.5"
-                      >
-                        열기 →
-                      </Link>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
+          <PurchasedReportsList
+            reports={user.purchasedReports}
+            variant="mypage"
+            emptyContent={
+              <p className="mt-4 text-sm text-white/55">
+                아직 저장된 리포트가 없어요. 결과 페이지에서 유료 리포트를
+                결제하면 여기에 쌓입니다.
+              </p>
+            }
+          />
         </section>
       </div>
     </main>

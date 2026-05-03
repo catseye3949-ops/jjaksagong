@@ -195,7 +195,7 @@ export default function Home() {
             </Link>
 
             <Link
-              href="#"
+              href="/reports"
               className="flex h-full flex-1 flex-col items-center justify-center gap-1 text-white/55"
             >
               <svg
