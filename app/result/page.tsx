@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import ResultIsPaidGate from "@/components/result/ResultIsPaidGate";
 import ResultPageBody from "@/components/result/ResultPageBody";
 import { cardsBasicData } from "@/data/cardsBasicData";
@@ -129,6 +130,11 @@ export default async function ResultPage({ searchParams }: ResultPageProps) {
   const dayPillar =
     dayPillarFromQuery ?? calculateIlju(birthdate, birthtime);
   const reportId = params.reportId?.trim() || "";
+
+  /** 생년월일이 없고 일주도 확정되지 않으면 빈·깨진 링크로 간주 (궁합 등 dayPillar-only 유입은 유지) */
+  if (!dayPillar && birthdate.trim().length === 0) {
+    redirect("/main");
+  }
 
   const cookieStore = await cookies();
   const sessionRaw = cookieStore.get(JJAK_SESSION_COOKIE)?.value ?? null;
