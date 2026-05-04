@@ -7,6 +7,7 @@ import LoveStrategyCard from "../../components/LoveStrategyCard";
 import PartnerStrategyPhoto from "../../components/PartnerStrategyPhoto";
 import { JJAK_SESSION_COOKIE, verifySessionToken } from "@/lib/auth/sessionToken";
 import type { Gender } from "../../lib/domain/user";
+import { normalizeDayPillarForPurchase } from "@/lib/purchaseBirthNormalize";
 import { getLoveStrategyForDayPillar } from "@/lib/server/getLoveStrategyForDayPillar";
 import { resolveResultPageIsPaid } from "@/lib/server/supabasePurchases";
 import { isValidDayPillar } from "@/lib/getCompatibilityScore";
@@ -130,10 +131,26 @@ export default async function ResultPage({ searchParams }: ResultPageProps) {
   const session = sessionRaw ? verifySessionToken(sessionRaw) : null;
   const sessionEmail = session?.sub ?? null;
 
+  const dayPillarForPurchaseCheck =
+    typeof dayPillar === "string" && dayPillar.trim()
+      ? normalizeDayPillarForPurchase(dayPillar) ?? dayPillar.trim()
+      : null;
+
+  console.log("[result] purchase check context", {
+    sessionEmail,
+    hasSessionCookie: Boolean(sessionRaw),
+    birthdate,
+    birthtime,
+    dayPillarParam,
+    dayPillarFromQuery,
+    dayPillarForCard: dayPillar,
+    dayPillarForPurchaseCheck,
+  });
+
   const isPaid = await resolveResultPageIsPaid({
     sessionEmail,
     targetBirthDate: birthdate,
-    dayPillar,
+    dayPillar: dayPillarForPurchaseCheck,
   });
 
   const canOfferPurchase = birthdate.trim().length > 0;

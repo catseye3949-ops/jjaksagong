@@ -8,7 +8,10 @@ import type {
 import {
   REFERRAL_REWARD_ON_REFEREE_FIRST_PURCHASE_KRW,
 } from "../domain/user";
-import { normalizeTargetBirthDateForPurchase } from "../purchaseBirthNormalize";
+import {
+  normalizeDayPillarForPurchase,
+  normalizeTargetBirthDateForPurchase,
+} from "../purchaseBirthNormalize";
 import { generateReferralCodeSegment } from "../referralCode";
 import { supabase } from "../supabaseClient";
 import { STORAGE_SESSION_KEY, STORAGE_USERS_KEY } from "./keys";
@@ -610,14 +613,44 @@ export async function completeMockPurchase(
   writeUsers(users);
 
   if (supabase) {
-    const birthNorm =
-      normalizeTargetBirthDateForPurchase(payload.birth) ?? payload.birth.trim();
-    const { error } = await supabase.from("purchases").insert({
+    const birthNorm = normalizeTargetBirthDateForPurchase(payload.birth);
+    const pillarNorm = normalizeDayPillarForPurchase(payload.ilju);
+    if (!birthNorm || !pillarNorm) {
+      console.error(
+        "[completeMockPurchase] purchases insert skipped: normalize failed",
+        { birthNorm, pillarNorm },
+      );
+      buyer.purchasedReports = buyer.purchasedReports.filter((r) => r.id !== report.id);
+      if (referrerEmailForRollback) {
+        const ref = users[referrerEmailForRollback];
+        if (ref) {
+          ref.referralSuccessCount = Math.max(0, ref.referralSuccessCount - 1);
+          ref.referralRewardBalance = Math.max(
+            0,
+            ref.referralRewardBalance -
+              REFERRAL_REWARD_ON_REFEREE_FIRST_PURCHASE_KRW,
+          );
+          users[referrerEmailForRollback] = ref;
+        }
+      }
+      users[buyer.email] = buyer;
+      writeUsers(users);
+      return {
+        ok: false,
+        error: "생년월일 또는 일주 정보를 저장할 수 없어요. 입력 형식을 확인해 주세요.",
+      };
+    }
+    const insertPayload = {
       email: buyer.email.trim().toLowerCase(),
       target_birth_date: birthNorm,
-      day_pillar: payload.ilju.trim(),
+      day_pillar: pillarNorm,
       created_at: new Date().toISOString(),
+    };
+    console.log("[completeMockPurchase] purchases insert payload", insertPayload, {
+      rawBirth: payload.birth,
+      rawIlju: payload.ilju,
     });
+    const { error } = await supabase.from("purchases").insert(insertPayload);
     if (error) {
       console.error("[completeMockPurchase] Supabase purchases insert failed:", error);
       buyer.purchasedReports = buyer.purchasedReports.filter((r) => r.id !== report.id);
