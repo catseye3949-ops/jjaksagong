@@ -420,6 +420,7 @@ export async function signupUser(
       name,
       birth_date: birthDate,
       gender: input.gender,
+      password_digest: passwordDigest,
       created_at: new Date().toISOString(),
     });
     if (error) {
@@ -448,6 +449,80 @@ export async function loginWithCredentials(
   const key = email.trim().toLowerCase();
   const users = readUsers();
   const acc = users[key];
+
+  if (supabase) {
+    try {
+      const { data, error } = await supabase
+        .from("users")
+        .select("email,name,birth_date,gender,password_digest")
+        .eq("email", key)
+        .maybeSingle();
+
+      if (error) {
+        console.error("[loginWithCredentials] Supabase query failed:", error);
+      } else if (data && typeof (data as { email?: unknown }).email === "string") {
+        const row = data as {
+          email: string;
+          name: string | null;
+          birth_date: string | null;
+          gender: string | null;
+          password_digest: string | null;
+        };
+
+        const remoteDigest =
+          typeof row.password_digest === "string"
+            ? row.password_digest.trim()
+            : "";
+
+        if (remoteDigest) {
+          const d = await digestPassword(key, password);
+          if (d !== remoteDigest) {
+            return { ok: false, error: "비밀번호가 일치하지 않습니다." };
+          }
+
+          if (!users[key]) {
+            const profileGender: ProfileGender =
+              row.gender === "female"
+                ? "female"
+                : row.gender === "male"
+                  ? "male"
+                  : "male";
+            const displayName = row.name?.trim() || "사용자";
+            users[key] = {
+              email: key,
+              name: displayName,
+              nickname: displayName,
+              referralCode: uniqueReferralCode(users),
+              referredBy: null,
+              referralRewardBalance: 0,
+              referralSuccessCount: 0,
+              purchasedReports: [],
+              passwordDigest: d,
+              ...(row.birth_date?.trim()
+                ? { birthDate: row.birth_date.trim() }
+                : {}),
+              profileGender,
+              termsAgreed: true,
+              privacyAgreed: true,
+            };
+            writeUsers(users);
+          } else {
+            const prev = users[key];
+            users[key] = { ...prev, passwordDigest: d };
+            writeUsers(users);
+          }
+
+          writeSessionEmail(key);
+          notifyAuthChanged();
+          return { ok: true };
+        }
+        // password_digest 없음: Supabase 레거시 행 → 아래 localStorage 로직으로 진행
+      }
+    } catch (e) {
+      console.error("[loginWithCredentials] Supabase exception:", e);
+    }
+  }
+
   if (!acc) {
     return { ok: false, error: "가입되지 않은 이메일입니다." };
   }
