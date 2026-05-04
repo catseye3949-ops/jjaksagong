@@ -8,6 +8,7 @@ import type {
 import {
   REFERRAL_REWARD_ON_REFEREE_FIRST_PURCHASE_KRW,
 } from "../domain/user";
+import { normalizeTargetBirthDateForPurchase } from "../purchaseBirthNormalize";
 import { generateReferralCodeSegment } from "../referralCode";
 import { supabase } from "../supabaseClient";
 import { STORAGE_SESSION_KEY, STORAGE_USERS_KEY } from "./keys";
@@ -562,10 +563,10 @@ export type PurchasePayload = {
  * Simulates a successful paid checkout. Later: call from payment-confirm API route
  * after verifying PG signature, using the same payload + user id from session.
  */
-export function completeMockPurchase(
+export async function completeMockPurchase(
   buyerEmail: string,
   payload: PurchasePayload,
-): { ok: true; report: PurchasedReport } | { ok: false; error: string } {
+): Promise<{ ok: true; report: PurchasedReport } | { ok: false; error: string }> {
   if (typeof window === "undefined") {
     return { ok: false, error: "브라우저에서만 처리할 수 있습니다." };
   }
@@ -594,17 +595,53 @@ export function completeMockPurchase(
 
   buyer.purchasedReports = [...buyer.purchasedReports, report];
 
+  let referrerEmailForRollback: string | null = null;
   if (wasFirstPaidReport && buyer.referredBy) {
     const referrer = findUserByReferralCode(users, buyer.referredBy);
     if (referrer && referrer.email !== buyer.email) {
       referrer.referralSuccessCount += 1;
       referrer.referralRewardBalance += REFERRAL_REWARD_ON_REFEREE_FIRST_PURCHASE_KRW;
       users[referrer.email] = referrer;
+      referrerEmailForRollback = referrer.email;
     }
   }
 
   users[buyer.email] = buyer;
   writeUsers(users);
+
+  if (supabase) {
+    const birthNorm =
+      normalizeTargetBirthDateForPurchase(payload.birth) ?? payload.birth.trim();
+    const { error } = await supabase.from("purchases").insert({
+      email: buyer.email.trim().toLowerCase(),
+      target_birth_date: birthNorm,
+      day_pillar: payload.ilju.trim(),
+      created_at: new Date().toISOString(),
+    });
+    if (error) {
+      console.error("[completeMockPurchase] Supabase purchases insert failed:", error);
+      buyer.purchasedReports = buyer.purchasedReports.filter((r) => r.id !== report.id);
+      if (referrerEmailForRollback) {
+        const ref = users[referrerEmailForRollback];
+        if (ref) {
+          ref.referralSuccessCount = Math.max(0, ref.referralSuccessCount - 1);
+          ref.referralRewardBalance = Math.max(
+            0,
+            ref.referralRewardBalance -
+              REFERRAL_REWARD_ON_REFEREE_FIRST_PURCHASE_KRW,
+          );
+          users[referrerEmailForRollback] = ref;
+        }
+      }
+      users[buyer.email] = buyer;
+      writeUsers(users);
+      return {
+        ok: false,
+        error: "결제 기록을 저장하지 못했어요. 잠시 후 다시 시도해 주세요.",
+      };
+    }
+  }
+
   notifyAuthChanged();
   return { ok: true, report };
 }

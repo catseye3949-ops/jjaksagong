@@ -8,7 +8,6 @@ export function buildPurchasedReportResultHref(
   q.set("birthdate", report.birth);
   if (report.birthtime) q.set("birthtime", report.birthtime);
   q.set("gender", report.gender);
-  q.set("isPaid", "true");
   q.set("reportId", report.id);
   return `/result?${q.toString()}`;
 }

@@ -269,7 +269,6 @@ export default function CompatibilityPanel() {
     const q = new URLSearchParams();
     q.set("dayPillar", resolvedPair.targetDayPillar);
     q.set("gender", targetGender);
-    q.set("isPaid", "false");
     q.set("from", "compatibility");
     const tn = resolvedCompat?.targetName.trim();
     if (tn) q.set("targetName", tn);

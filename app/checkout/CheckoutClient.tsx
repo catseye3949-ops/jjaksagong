@@ -59,7 +59,7 @@ export default function CheckoutClient() {
       pendingPhoto = undefined;
     }
 
-    const result = completeMockPurchase(user.email, {
+    const result = await completeMockPurchase(user.email, {
       name: name || "이 사람",
       birth: birthdate,
       birthtime,
@@ -86,7 +86,6 @@ export default function CheckoutClient() {
     q.set("birthdate", birthdate);
     if (birthtime) q.set("birthtime", birthtime);
     q.set("gender", gender);
-    q.set("isPaid", "true");
     q.set("reportId", result.report.id);
     router.push(`/result?${q.toString()}`);
   };

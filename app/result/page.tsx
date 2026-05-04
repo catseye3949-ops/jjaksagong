@@ -1,11 +1,14 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
 import PaidReportUnlockButton from "@/components/PaidReportUnlockButton";
 import { cardsBasicData } from "@/data/cardsBasicData";
 import { calculateIlju } from "../../lib/calculateIlju";
 import LoveStrategyCard from "../../components/LoveStrategyCard";
 import PartnerStrategyPhoto from "../../components/PartnerStrategyPhoto";
+import { JJAK_SESSION_COOKIE, verifySessionToken } from "@/lib/auth/sessionToken";
 import type { Gender } from "../../lib/domain/user";
 import { getLoveStrategyForDayPillar } from "@/lib/server/getLoveStrategyForDayPillar";
+import { resolveResultPageIsPaid } from "@/lib/server/supabasePurchases";
 import { isValidDayPillar } from "@/lib/getCompatibilityScore";
 import {
   substituteDayPillarInBasicCard,
@@ -18,7 +21,6 @@ type SearchParams = Promise<{
   birthdate?: string;
   birthtime?: string;
   gender?: string;
-  isPaid?: string;
   dayPillar?: string;
   from?: string;
   /** Purchased report id — loads stored partner photo from account */
@@ -115,7 +117,6 @@ export default async function ResultPage({ searchParams }: ResultPageProps) {
   const birthdate = params.birthdate || "";
   const birthtime = params.birthtime || "";
   const gender: Gender = params.gender === "female" ? "female" : "male";
-  const isPaid = params.isPaid === "true";
 
   const dayPillarParam = params.dayPillar?.trim() || "";
   const dayPillarFromQuery =
@@ -123,6 +124,17 @@ export default async function ResultPage({ searchParams }: ResultPageProps) {
   const dayPillar =
     dayPillarFromQuery ?? calculateIlju(birthdate, birthtime);
   const reportId = params.reportId?.trim() || "";
+
+  const cookieStore = await cookies();
+  const sessionRaw = cookieStore.get(JJAK_SESSION_COOKIE)?.value ?? null;
+  const session = sessionRaw ? verifySessionToken(sessionRaw) : null;
+  const sessionEmail = session?.sub ?? null;
+
+  const isPaid = await resolveResultPageIsPaid({
+    sessionEmail,
+    targetBirthDate: birthdate,
+    dayPillar,
+  });
 
   const canOfferPurchase = birthdate.trim().length > 0;
   const basicCardRaw =
