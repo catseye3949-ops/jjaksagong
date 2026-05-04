@@ -8,12 +8,20 @@ export async function establishServerSession(
   password: string,
 ): Promise<void> {
   const users = readUsers();
-  await fetch("/api/auth/session", {
+  const res = await fetch("/api/auth/session", {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password, users }),
   });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    console.error(
+      "[establishServerSession] jjak_session not set:",
+      res.status,
+      text.slice(0, 300),
+    );
+  }
 }
 
 export async function clearServerSession(): Promise<void> {
@@ -25,10 +33,18 @@ export async function clearServerSession(): Promise<void> {
 
 export async function refreshServerSessionUsers(): Promise<void> {
   const users: Record<string, UserAccount> = readUsers();
-  await fetch("/api/auth/session/refresh", {
+  const res = await fetch("/api/auth/session/refresh", {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ users }),
   });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    console.error(
+      "[refreshServerSessionUsers] session refresh failed:",
+      res.status,
+      text.slice(0, 300),
+    );
+  }
 }

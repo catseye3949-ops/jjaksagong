@@ -1,15 +1,22 @@
 import Link from "next/link";
 import { cookies } from "next/headers";
 import PaidReportUnlockButton from "@/components/PaidReportUnlockButton";
+import ResultIsPaidGate from "@/components/ResultIsPaidGate";
 import { cardsBasicData } from "@/data/cardsBasicData";
 import { calculateIlju } from "../../lib/calculateIlju";
 import LoveStrategyCard from "../../components/LoveStrategyCard";
 import PartnerStrategyPhoto from "../../components/PartnerStrategyPhoto";
 import { JJAK_SESSION_COOKIE, verifySessionToken } from "@/lib/auth/sessionToken";
 import type { Gender } from "../../lib/domain/user";
-import { normalizeDayPillarForPurchase } from "@/lib/purchaseBirthNormalize";
+import {
+  normalizeDayPillarForPurchase,
+  normalizeTargetBirthDateForPurchase,
+} from "@/lib/purchaseBirthNormalize";
 import { getLoveStrategyForDayPillar } from "@/lib/server/getLoveStrategyForDayPillar";
-import { resolveResultPageIsPaid } from "@/lib/server/supabasePurchases";
+import {
+  fetchPurchasesForEmail,
+  resolveResultPageIsPaid,
+} from "@/lib/server/supabasePurchases";
 import { isValidDayPillar } from "@/lib/getCompatibilityScore";
 import {
   substituteDayPillarInBasicCard,
@@ -136,21 +143,30 @@ export default async function ResultPage({ searchParams }: ResultPageProps) {
       ? normalizeDayPillarForPurchase(dayPillar) ?? dayPillar.trim()
       : null;
 
-  console.log("[result] purchase check context", {
-    sessionEmail,
-    hasSessionCookie: Boolean(sessionRaw),
-    birthdate,
-    birthtime,
-    dayPillarParam,
-    dayPillarFromQuery,
-    dayPillarForCard: dayPillar,
-    dayPillarForPurchaseCheck,
-  });
+  const normBirthServer = normalizeTargetBirthDateForPurchase(birthdate);
 
-  const isPaid = await resolveResultPageIsPaid({
+  const serverIsPaid = await resolveResultPageIsPaid({
     sessionEmail,
     targetBirthDate: birthdate,
     dayPillar: dayPillarForPurchaseCheck,
+  });
+
+  const purchasesRowsForLog =
+    sessionEmail != null
+      ? await fetchPurchasesForEmail(sessionEmail)
+      : [];
+
+  console.log("[result] server unlock summary", {
+    sessionEmail,
+    hasSessionCookie: Boolean(sessionRaw),
+    birthdateQuery: birthdate,
+    normalizedBirthdate: normBirthServer,
+    calculatedDayPillar: dayPillar,
+    dayPillarNormalizedForMatch: dayPillarForPurchaseCheck,
+    dayPillarParam,
+    dayPillarFromQuery,
+    purchasesRows: purchasesRowsForLog,
+    matchResultServer: serverIsPaid,
   });
 
   const canOfferPurchase = birthdate.trim().length > 0;
@@ -251,7 +267,15 @@ export default async function ResultPage({ searchParams }: ResultPageProps) {
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.08),transparent_35%)]" />
       </div>
 
-      <section className="block md:hidden">
+      <ResultIsPaidGate
+        serverIsPaid={serverIsPaid}
+        birthdate={birthdate}
+        birthtime={birthtime}
+        dayPillar={dayPillar}
+      >
+        {(isPaid) => (
+          <>
+            <section className="block md:hidden">
         <div className="relative mx-auto min-h-screen w-full max-w-[430px] border-x border-white/10 bg-gradient-to-b from-[#1a0a16] via-[#170a1f] to-[#10091a] shadow-[0_20px_80px_rgba(0,0,0,0.45)]">
           <header className="sticky top-0 z-20 border-b border-white/10 bg-[#130a19]/90 px-5 py-4 backdrop-blur-xl">
             <h1 className="text-center text-sm font-semibold tracking-wide text-white/95">
@@ -572,6 +596,9 @@ export default async function ResultPage({ searchParams }: ResultPageProps) {
           </div>
         </section>
       </section>
+          </>
+        )}
+      </ResultIsPaidGate>
     </main>
   );
 }
