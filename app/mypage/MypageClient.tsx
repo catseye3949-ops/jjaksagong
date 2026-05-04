@@ -2,9 +2,13 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { buildLoveFortuneFlowPoints } from "@/lib/buildLoveFortuneFlowPoints";
+import { calculateDaewoonList } from "@/lib/calculateDaewoonList";
+import { calculateIlju } from "@/lib/calculateIlju";
+import { calculateLoveFortunePeriods } from "@/lib/calculateLoveFortunePeriods";
 import { useAuth } from "../../contexts/AuthContext";
-import PurchasedReportsList from "../../components/PurchasedReportsList";
+import { LoveFortuneFlowChart, type LoveFlowPoint } from "./LoveFortuneFlowChart";
 
 async function copyTextToClipboard(text: string): Promise<boolean> {
   try {
@@ -41,6 +45,11 @@ const inlineActionBtnClass =
   "shrink-0 rounded-lg border border-white/20 bg-white/10 px-2 py-1 text-xs font-medium text-white/90 transition hover:border-fuchsia-300/45 hover:bg-white/[0.12] leading-none";
 
 const inlineActionShiftClass = "inline-flex md:translate-x-3";
+
+type LoveFlowChartState =
+  | { kind: "hidden" }
+  | { kind: "error" }
+  | { kind: "chart"; points: LoveFlowPoint[]; allZero: boolean };
 
 export default function MypageClient() {
   const router = useRouter();
@@ -96,6 +105,39 @@ export default function MypageClient() {
     if (!ok) return;
     setCopyLabel("복사됨");
     window.setTimeout(() => setCopyLabel("복사"), 1500);
+  }, [user]);
+
+  const loveFlowChart = useMemo((): LoveFlowChartState => {
+    if (!user) return { kind: "hidden" };
+    const gender = user.profileGender;
+    if (gender !== "male" && gender !== "female") {
+      return { kind: "hidden" };
+    }
+    if (!user.birthDate?.trim()) {
+      return { kind: "hidden" };
+    }
+    const dayPillar = calculateIlju(user.birthDate, user.birthTime ?? "");
+    if (!dayPillar) {
+      return { kind: "hidden" };
+    }
+    const now = new Date();
+    const apiYear = now.getFullYear();
+    const periods = calculateLoveFortunePeriods(dayPillar, gender, apiYear, 6);
+    if (!periods) {
+      return { kind: "error" };
+    }
+    const daewoon = calculateDaewoonList(
+      user.birthDate,
+      user.birthTime ?? undefined,
+      gender,
+      12,
+    );
+    if (!daewoon) {
+      return { kind: "error" };
+    }
+    const points = buildLoveFortuneFlowPoints(periods, daewoon, user.birthDate, now);
+    const allZero = points.every((p) => p.score === 0);
+    return { kind: "chart", points, allZero };
   }, [user]);
 
   useEffect(() => {
@@ -281,30 +323,34 @@ export default function MypageClient() {
           </p>
         </section>
 
-        <section className="rounded-[28px] border border-white/10 bg-white/8 p-6 backdrop-blur-xl shadow-[0_20px_80px_rgba(0,0,0,0.35)]">
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="text-lg font-semibold text-pink-200">
-              내 공략 리포트
-            </h2>
-            <Link
-              href="/main"
-              className="text-xs font-medium text-fuchsia-200/90 underline-offset-4 hover:underline"
-            >
-              새 분석하기
-            </Link>
-          </div>
+        <div className="mt-6">
+          <Link
+            href="/reports"
+            className="flex w-full min-h-[52px] items-center justify-center rounded-2xl border border-fuchsia-400/35 bg-gradient-to-r from-pink-500/25 via-fuchsia-500/30 to-violet-500/25 px-6 py-4 text-center text-sm font-semibold text-white shadow-[0_8px_28px_rgba(217,70,239,0.25)] transition hover:border-fuchsia-300/55 hover:brightness-110 sm:min-h-0 sm:py-3.5"
+          >
+            내 공략 컬렉션 보기
+          </Link>
+        </div>
 
-          <PurchasedReportsList
-            reports={user.purchasedReports}
-            variant="mypage"
-            emptyContent={
-              <p className="mt-4 text-sm text-white/55">
-                아직 저장된 리포트가 없어요. 결과 페이지에서 유료 리포트를
-                결제하면 여기에 쌓입니다.
+        {loveFlowChart.kind !== "hidden" ? (
+          <section className="overflow-hidden rounded-[28px] border border-white/10 bg-white/8 p-6 pb-12 backdrop-blur-xl shadow-[0_20px_80px_rgba(0,0,0,0.35)]">
+            <h2 className="text-lg font-semibold text-fuchsia-200">연애운 상승 시기</h2>
+            <p className="mt-1.5 text-[11px] leading-relaxed text-white/42">
+              이 연애운은 결혼까지 갈 수 있는 진지한 연애를 전제로 한 운입니다.
+            </p>
+            <p className="mt-2 text-sm leading-relaxed text-white/65">
+              앞으로 5년간 관계 기회가 강해질 수 있는 흐름을 월별로 정리했어요.
+            </p>
+
+            {loveFlowChart.kind === "error" ? (
+              <p className="mt-5 text-sm text-rose-200/90" role="alert">
+                연애운 흐름을 불러올 수 없습니다.
               </p>
-            }
-          />
-        </section>
+            ) : (
+              <LoveFortuneFlowChart points={loveFlowChart.points} allZero={loveFlowChart.allZero} />
+            )}
+          </section>
+        ) : null}
       </div>
     </main>
   );

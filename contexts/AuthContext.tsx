@@ -11,6 +11,10 @@ import {
 import type { UserAccount } from "../lib/domain/user";
 import { STORAGE_SESSION_KEY, STORAGE_USERS_KEY } from "../lib/storage/keys";
 import {
+  clearServerSession,
+  establishServerSession,
+} from "../lib/client/serverSessionSync";
+import {
   loginWithCredentials,
   logout as logoutStore,
   readSessionEmail,
@@ -81,16 +85,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  const login = useCallback(
-    (email: string, password: string) => loginWithCredentials(email, password),
-    [],
-  );
+  const login = useCallback(async (email: string, password: string) => {
+    const result = await loginWithCredentials(email, password);
+    if (result.ok) {
+      try {
+        await establishServerSession(email, password);
+      } catch {
+        /* non-fatal: email API session cookie */
+      }
+    }
+    return result;
+  }, []);
 
   const logout = useCallback(() => {
+    void clearServerSession();
     logoutStore();
   }, []);
 
-  const signup = useCallback((input: SignupInput) => signupUser(input), []);
+  const signup = useCallback(async (input: SignupInput) => {
+    const result = await signupUser(input);
+    if (result.ok) {
+      try {
+        await establishServerSession(input.email, input.password);
+      } catch {
+        /* non-fatal */
+      }
+    }
+    return result;
+  }, []);
 
   const updateDisplayName = useCallback(
     (nextName: string) => {

@@ -66,6 +66,7 @@ export default function ReportsClient() {
             <PurchasedReportsList
               reports={user.purchasedReports}
               variant="collection"
+              recipientEmail={user.email}
               emptyContent={
                 <div className="mt-8 space-y-6 text-center">
                   <p className="text-sm font-medium text-white/80">

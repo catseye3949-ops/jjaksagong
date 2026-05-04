@@ -9,6 +9,7 @@ import { DEMO_REPORT_PRICE_WON } from "../../lib/billing";
 import { calculateIlju } from "../../lib/calculateIlju";
 import type { Gender } from "../../lib/domain/user";
 import { STORAGE_PENDING_PARTNER_PHOTO_KEY } from "../../lib/storage/keys";
+import { refreshServerSessionUsers } from "../../lib/client/serverSessionSync";
 import { completeMockPurchase } from "../../lib/storage/userStore";
 
 export default function CheckoutClient() {
@@ -42,7 +43,7 @@ export default function CheckoutClient() {
 
   const canPurchase = Boolean(birthdate && ilju && user);
 
-  const onConfirm = () => {
+  const onConfirm = async () => {
     if (!user) return;
     setError(null);
     if (!birthdate || !ilju) {
@@ -69,6 +70,11 @@ export default function CheckoutClient() {
     if (!result.ok) {
       setError(result.error);
       return;
+    }
+    try {
+      await refreshServerSessionUsers();
+    } catch {
+      /* 세션 쿠키 갱신 실패해도 결제·리다이렉트는 진행 */
     }
     try {
       sessionStorage.removeItem(STORAGE_PENDING_PARTNER_PHOTO_KEY);

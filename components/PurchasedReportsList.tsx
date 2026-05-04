@@ -6,18 +6,22 @@ import type { PurchasedReport } from "../lib/domain/user";
 import { buildPurchasedReportResultHref } from "../lib/buildPurchasedReportResultHref";
 import { formatBirthDisplay } from "../lib/formatBirth";
 import PurchasedReportPhotoEditor from "./PurchasedReportPhotoEditor";
+import ReportEmailReceiveButton from "./ReportEmailReceiveButton";
 
 type PurchasedReportsListProps = {
   reports: PurchasedReport[];
   /** 리포트가 없을 때만 렌더 */
   emptyContent: ReactNode;
   variant?: "mypage" | "collection";
+  /** 컬렉션 전용: 로그인 이메일 기본값(버튼 표시 시) */
+  recipientEmail?: string;
 };
 
 export default function PurchasedReportsList({
   reports,
   emptyContent,
   variant = "mypage",
+  recipientEmail,
 }: PurchasedReportsListProps) {
   if (!reports.length) {
     return <>{emptyContent}</>;
@@ -62,9 +66,17 @@ export default function PurchasedReportsList({
               </Link>
             </div>
             {variant === "collection" ? (
-              <p className="border-t border-white/10 px-4 py-2.5 text-[11px] text-white/45">
-                구매 {purchasedLabel}
-              </p>
+              <>
+                <p className="border-t border-white/10 px-4 py-2.5 text-[11px] text-white/45">
+                  구매 {purchasedLabel}
+                </p>
+                {typeof recipientEmail === "string" ? (
+                  <ReportEmailReceiveButton
+                    reportId={r.id}
+                    defaultEmail={recipientEmail}
+                  />
+                ) : null}
+              </>
             ) : null}
           </li>
         );

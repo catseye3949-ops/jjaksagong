@@ -9,6 +9,7 @@ import {
   REFERRAL_REWARD_ON_REFEREE_FIRST_PURCHASE_KRW,
 } from "../domain/user";
 import { generateReferralCodeSegment } from "../referralCode";
+import { supabase } from "../supabaseClient";
 import { STORAGE_SESSION_KEY, STORAGE_USERS_KEY } from "./keys";
 
 function notifyAuthChanged() {
@@ -412,6 +413,26 @@ export async function signupUser(
 
   users[email] = account;
   writeUsers(users);
+
+  if (supabase) {
+    const { error } = await supabase.from("users").insert({
+      email,
+      name,
+      birth_date: birthDate,
+      gender: input.gender,
+      created_at: new Date().toISOString(),
+    });
+    if (error) {
+      console.error("[signupUser] Supabase insert failed:", error);
+      delete users[email];
+      writeUsers(users);
+      return {
+        ok: false,
+        error: "회원가입 처리 중 오류가 발생했어요. 잠시 후 다시 시도해 주세요.",
+      };
+    }
+  }
+
   writeSessionEmail(email);
   notifyAuthChanged();
   return { ok: true };
