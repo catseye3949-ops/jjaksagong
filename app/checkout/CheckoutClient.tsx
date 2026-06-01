@@ -1,22 +1,47 @@
 "use client";
 
 import Link from "next/link";
+import Script from "next/script";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import AuthShell from "../../components/AuthShell";
 import { useAuth } from "../../contexts/AuthContext";
-import { DEMO_REPORT_PRICE_WON } from "../../lib/billing";
+import { PREMIUM_REPORT_PRICE_WON } from "../../lib/billing";
 import { calculateIlju } from "../../lib/calculateIlju";
 import type { Gender } from "../../lib/domain/user";
-import { STORAGE_PENDING_PARTNER_PHOTO_KEY } from "../../lib/storage/keys";
-import { refreshServerSessionUsers } from "../../lib/client/serverSessionSync";
-import { completeMockPurchase } from "../../lib/storage/userStore";
+
+const NICE_CLIENT_KEY = process.env.NEXT_PUBLIC_NICE_CLIENT_KEY ?? "";
+
+type NicepayOrderResponse =
+  | {
+      ok: true;
+      method: string;
+      orderId: string;
+      amount: number;
+      goodsName: string;
+      returnUrl: string;
+      mallReserved: string;
+      buyerName: string;
+      buyerEmail: string;
+      mallUserId: string;
+      language: "KO";
+    }
+  | { ok: false; error: string };
 
 export default function CheckoutClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, isReady } = useAuth();
   const [error, setError] = useState<string | null>(null);
+  const [nicepayReady, setNicepayReady] = useState(false);
+  const [isPaying, setIsPaying] = useState(false);
+
+  useEffect(() => {
+    console.log(
+      "CLIENT_KEY",
+      process.env.NEXT_PUBLIC_NICE_CLIENT_KEY
+    );
+  }, []);
 
   const name = searchParams.get("name")?.trim() || "";
   const birthdate = searchParams.get("birthdate") || "";
@@ -43,6 +68,15 @@ export default function CheckoutClient() {
 
   const canPurchase = Boolean(birthdate && ilju && user);
 
+  const buildResultPath = () => {
+    const q = new URLSearchParams();
+    if (name) q.set("name", name);
+    q.set("birthdate", birthdate);
+    if (birthtime) q.set("birthtime", birthtime);
+    q.set("gender", gender);
+    return `/result?${q.toString()}`;
+  };
+
   const onConfirm = async () => {
     if (!user) return;
     setError(null);
@@ -50,44 +84,68 @@ export default function CheckoutClient() {
       setError("생년월일 정보가 올바르지 않습니다. 다시 입력해 주세요.");
       return;
     }
-    let pendingPhoto: string | undefined;
-    try {
-      const raw = sessionStorage.getItem(STORAGE_PENDING_PARTNER_PHOTO_KEY);
-      pendingPhoto =
-        raw && raw.startsWith("data:image/") ? raw : undefined;
-    } catch {
-      pendingPhoto = undefined;
-    }
-
-    const result = await completeMockPurchase(user.email, {
-      name: name || "이 사람",
-      birth: birthdate,
-      birthtime,
-      gender,
-      ilju,
-      ...(pendingPhoto ? { photoDataUrl: pendingPhoto } : {}),
-    });
-    if (!result.ok) {
-      setError(result.error);
+    if (!NICE_CLIENT_KEY) {
+      setError("나이스페이 클라이언트 키가 설정되지 않았습니다.");
       return;
     }
-    try {
-      await refreshServerSessionUsers();
-    } catch {
-      /* 세션 쿠키 갱신 실패해도 결제·리다이렉트는 진행 */
+    if (!window.AUTHNICE?.requestPay) {
+      setError("결제 모듈을 불러오는 중입니다. 잠시 후 다시 시도해 주세요.");
+      return;
     }
+
+    setIsPaying(true);
     try {
-      sessionStorage.removeItem(STORAGE_PENDING_PARTNER_PHOTO_KEY);
-    } catch {
-      /* ignore */
+      const response = await fetch("/api/nicepay/order", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          buyerName: user.name || user.nickname || "사용자",
+          targetName: name || "이 사람",
+          birthdate,
+          birthtime,
+          gender,
+        }),
+      });
+      const order = (await response.json()) as NicepayOrderResponse;
+      if (!response.ok || !order.ok) {
+        const orderError = order.ok ? "server_error" : order.error;
+        if (orderError === "already_purchased") {
+          router.push(buildResultPath());
+          return;
+        }
+        setError(
+          orderError === "session_required"
+            ? "로그인이 필요합니다. 다시 로그인해 주세요."
+            : "결제 주문을 생성하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+        );
+        return;
+      }
+
+      window.AUTHNICE.requestPay({
+        clientId: NICE_CLIENT_KEY,
+        method: order.method,
+        orderId: order.orderId,
+        amount: order.amount,
+        goodsName: order.goodsName,
+        returnUrl: order.returnUrl,
+        mallReserved: order.mallReserved,
+        mallUserId: order.mallUserId,
+        buyerName: order.buyerName,
+        buyerEmail: order.buyerEmail,
+        language: order.language,
+        fnError: (nicepayError) => {
+          const message = nicepayError.errorMsg || "";
+          if (message.includes("사용자 취소")) return;
+          setError(message || "결제창을 열지 못했습니다.");
+        },
+      });
+    } catch (e) {
+      console.error("[checkout] NICEPAY request failed", e);
+      setError("결제창을 열지 못했습니다. 잠시 후 다시 시도해 주세요.");
+    } finally {
+      setIsPaying(false);
     }
-    const q = new URLSearchParams();
-    if (name) q.set("name", name);
-    q.set("birthdate", birthdate);
-    if (birthtime) q.set("birthtime", birthtime);
-    q.set("gender", gender);
-    q.set("reportId", result.report.id);
-    router.push(`/result?${q.toString()}`);
   };
 
   if (!isReady || !user) {
@@ -100,9 +158,16 @@ export default function CheckoutClient() {
 
   return (
     <AuthShell
-      title="유료 리포트 (데모 결제)"
-      subtitle="실제 PG 연동 전까지는 아래 버튼으로 결제 완료를 시뮬레이션합니다. 완료 후 리포트가 컬렉션에 저장됩니다."
+      title="프리미엄 리포트 결제"
+      subtitle="나이스페이 결제 완료 후 리포트 전체가 열리고, 마이페이지에서 다시 볼 수 있어요."
     >
+      <Script
+        src="https://pay.nicepay.co.kr/v1/js/"
+        strategy="afterInteractive"
+        onLoad={() => setNicepayReady(true)}
+        onError={() => setError("나이스페이 결제 모듈을 불러오지 못했습니다.")}
+      />
+
       <Link
         href="/mypage"
         className="text-sm text-fuchsia-200/90 underline-offset-4 hover:underline"
@@ -112,9 +177,9 @@ export default function CheckoutClient() {
 
       <div className="mt-6 space-y-4 rounded-2xl border border-white/10 bg-white/5 p-5 text-sm text-white/75">
         <div className="flex items-center justify-between gap-3">
-          <span className="text-white/50">리포트 금액 (데모)</span>
+          <span className="text-white/50">리포트 금액</span>
           <span className="text-lg font-semibold text-white">
-            {DEMO_REPORT_PRICE_WON.toLocaleString("ko-KR")}원
+            {PREMIUM_REPORT_PRICE_WON.toLocaleString("ko-KR")}원
           </span>
         </div>
         <div className="h-px bg-gradient-to-r from-transparent via-white/15 to-transparent" />
@@ -134,7 +199,7 @@ export default function CheckoutClient() {
             {user.referralRewardBalance.toLocaleString("ko-KR")}원
           </span>
           <br />
-          PG 연동 시 할인 차감 로직을 여기에 연결하면 됩니다.
+          이번 결제는 정가 {PREMIUM_REPORT_PRICE_WON.toLocaleString("ko-KR")}원으로 진행됩니다.
         </div>
       </div>
 
@@ -146,11 +211,11 @@ export default function CheckoutClient() {
 
       <button
         type="button"
-        disabled={!canPurchase}
+        disabled={!canPurchase || !nicepayReady || isPaying}
         onClick={onConfirm}
         className="mt-6 w-full rounded-2xl bg-gradient-to-r from-pink-500 via-fuchsia-500 to-violet-500 py-3.5 text-sm font-semibold text-white shadow-[0_10px_40px_rgba(217,70,239,0.35)] transition enabled:hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-40"
       >
-        결제 완료 (데모)
+        {isPaying ? "결제창 여는 중..." : "3,900원 결제하기"}
       </button>
 
       <p className="mt-4 text-center text-xs text-white/45">

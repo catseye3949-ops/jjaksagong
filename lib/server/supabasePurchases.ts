@@ -6,6 +6,7 @@ import {
   normalizeTargetBirthDateFromStorage,
 } from "@/lib/purchaseBirthNormalize";
 import { supabase } from "@/lib/supabaseClient";
+import type { Gender } from "@/lib/domain/user";
 
 /** Supabase `purchases` 행 (필요 시 확장) */
 export type PurchaseRow = Record<string, unknown>;
@@ -36,6 +37,8 @@ export async function fetchPurchasesForEmail(
       email: key,
       count: (data ?? []).length,
       rows: (data ?? []).map((r) => ({
+        target_name: (r as PurchaseRow).target_name,
+        target_gender: (r as PurchaseRow).target_gender,
         target_birth_date: (r as PurchaseRow).target_birth_date,
         day_pillar: (r as PurchaseRow).day_pillar,
       })),
@@ -122,4 +125,68 @@ export async function resolveResultPageIsPaid(opts: {
   );
   console.log("[resolveResultPageIsPaid] result", { hit });
   return hit;
+}
+
+export type StorePremiumReportPurchaseInput = {
+  email: string;
+  targetName: string;
+  targetGender: Gender;
+  targetBirthDate: string;
+  dayPillar: string;
+};
+
+export async function storePremiumReportPurchase(
+  input: StorePremiumReportPurchaseInput,
+): Promise<
+  | { ok: true; alreadyPurchased: boolean }
+  | { ok: false; error: string; status: number }
+> {
+  if (!supabase) {
+    return {
+      ok: false,
+      error: "Supabase 환경변수가 없어 구매 기록을 저장할 수 없습니다.",
+      status: 500,
+    };
+  }
+
+  const email = input.email.trim().toLowerCase();
+  const birthNorm = normalizeTargetBirthDateForPurchase(input.targetBirthDate);
+  const pillarNorm = normalizeDayPillarForPurchase(input.dayPillar);
+  if (!email || !birthNorm || !pillarNorm) {
+    return {
+      ok: false,
+      error: "구매 대상 정보를 저장할 수 없습니다.",
+      status: 400,
+    };
+  }
+
+  const alreadyPurchased = await hasPurchasedReportForBirthAndPillar(
+    email,
+    birthNorm,
+    pillarNorm,
+  );
+  if (alreadyPurchased) {
+    return { ok: true, alreadyPurchased: true };
+  }
+
+  const insertPayload = {
+    email,
+    target_name: input.targetName.trim() || "이 사람",
+    target_gender: input.targetGender,
+    target_birth_date: birthNorm,
+    day_pillar: pillarNorm,
+    created_at: new Date().toISOString(),
+  };
+
+  const { error } = await supabase.from("purchases").insert(insertPayload);
+  if (error) {
+    console.error("[storePremiumReportPurchase] Supabase insert failed:", error);
+    return {
+      ok: false,
+      error: "결제 기록을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+      status: 502,
+    };
+  }
+
+  return { ok: true, alreadyPurchased: false };
 }

@@ -642,6 +642,8 @@ export async function completeMockPurchase(
     }
     const insertPayload = {
       email: buyer.email.trim().toLowerCase(),
+      target_name: report.name,
+      target_gender: report.gender,
       target_birth_date: birthNorm,
       day_pillar: pillarNorm,
       created_at: new Date().toISOString(),
@@ -649,6 +651,8 @@ export async function completeMockPurchase(
     console.log("[completeMockPurchase] purchases insert payload", insertPayload, {
       rawBirth: payload.birth,
       rawIlju: payload.ilju,
+      rawName: payload.name,
+      rawGender: payload.gender,
     });
     const { error } = await supabase.from("purchases").insert(insertPayload);
     if (error) {

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "../contexts/AuthContext";
 import type { Gender } from "../lib/domain/user";
-import { DEMO_REPORT_PRICE_WON } from "../lib/billing";
+import { PREMIUM_REPORT_PRICE_WON } from "../lib/billing";
 
 export type PaidReportUnlockButtonProps = {
   name: string;
@@ -44,7 +44,7 @@ export default function PaidReportUnlockButton(
     router.push(checkoutNext);
   };
 
-  const priceLabel = `${DEMO_REPORT_PRICE_WON.toLocaleString("ko-KR")}원`;
+  const priceLabel = `${PREMIUM_REPORT_PRICE_WON.toLocaleString("ko-KR")}원`;
 
   if (variant === "overlay") {
     return (
@@ -54,7 +54,7 @@ export default function PaidReportUnlockButton(
         className="inline-flex w-full items-center justify-center rounded-2xl border border-fuchsia-300/40 bg-gradient-to-r from-pink-500 via-fuchsia-500 to-violet-500 px-5 py-3.5 text-center shadow-[0_14px_48px_rgba(217,70,239,0.42)] ring-1 ring-white/15 transition duration-300 hover:scale-[1.02] hover:shadow-[0_18px_56px_rgba(217,70,239,0.5)] sm:py-4"
       >
         <span className="text-sm font-bold leading-snug text-white sm:text-base">
-          이 사람 공략 리포트 열기
+          프리미엄 리포트 구매하기
           <span className="mx-1.5 text-white/50">·</span>
           <span className="tabular-nums text-white">{priceLabel}</span>
         </span>
@@ -73,16 +73,13 @@ export default function PaidReportUnlockButton(
           마이페이지에 남는 프리미엄 리포트
         </span>
         <span className="text-base font-bold leading-snug text-white sm:text-lg">
-          이 사람 공략 리포트 영구 저장하기
+          프리미엄 리포트 구매하기
           <span className="mx-1.5 text-white/50">·</span>
           <span className="tabular-nums text-white">{priceLabel}</span>
         </span>
       </button>
       <p className="text-center text-xs leading-relaxed text-white/50">
         로그인 후 결제하면 마이페이지에 남고, 언제든 다시 열어볼 수 있어요.
-        <span className="block text-white/35">
-          (현재는 PG 없이 데모 결제만 제공)
-        </span>
       </p>
       <p className="text-center text-xs leading-relaxed text-white/45">
         계정이 없으면{" "}
