@@ -49,16 +49,17 @@ export function buildPurchasedReportEmailText(opts: {
     : undefined;
 
   const basicCard =
-    basicCardRaw && name && dayPillar
-      ? substituteDayPillarInBasicCard(basicCardRaw, dayPillar, name)
+    basicCardRaw
+      ? substituteDayPillarInBasicCard(basicCardRaw, dayPillar, name, gender)
       : basicCardRaw;
 
   const loveStrategy =
-    loveStrategyRaw && name && dayPillar
+    loveStrategyRaw
       ? substituteDayPillarInLoveStrategy(
           loveStrategyRaw,
           dayPillar,
           name,
+          gender,
         )
       : loveStrategyRaw;
 

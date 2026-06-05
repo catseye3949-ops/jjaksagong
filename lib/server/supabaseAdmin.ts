@@ -29,3 +29,7 @@ export function supabaseServerAuthMode(): "service_role" | "anon" | "none" {
   if (supabase) return "anon";
   return "none";
 }
+
+export function hasSupabaseServiceRoleKey(): boolean {
+  return Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY?.trim());
+}

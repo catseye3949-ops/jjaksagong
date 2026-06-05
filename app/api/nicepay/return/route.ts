@@ -30,9 +30,60 @@ type ReservedOrderLike = {
   dayPillar: string;
 };
 
+async function grantReferralRewardSafely(
+  reserved: ReservedOrderLike,
+  context: string,
+  paymentMode: string,
+) {
+  console.log("[referral:grant] CALLING", {
+    buyerEmail: reserved.buyerEmail,
+    orderId: reserved.orderId,
+    paymentMode,
+  });
+
+  console.log(`[nicepay:return] grantReferralRewardOnPurchase call (${context})`, {
+    buyerEmail: reserved.buyerEmail,
+    orderId: reserved.orderId,
+    purchaseId: reserved.orderId,
+    paymentMode,
+  });
+
+  try {
+    const referral = await grantReferralRewardOnPurchase({
+      buyerEmail: reserved.buyerEmail,
+      purchaseId: reserved.orderId,
+    });
+    if (!referral.ok) {
+      console.error(`[nicepay:return] referral grant failed (${context})`, {
+        ...referral,
+        buyerEmail: reserved.buyerEmail,
+        orderId: reserved.orderId,
+        paymentMode,
+      });
+    } else {
+      console.log(`[nicepay:return] referral grant result (${context})`, {
+        ...referral,
+        buyerEmail: reserved.buyerEmail,
+        orderId: reserved.orderId,
+        paymentMode,
+      });
+    }
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    console.error(`[nicepay:return] referral grant failed (${context})`, {
+      message: err.message,
+      stack: err.stack,
+      buyerEmail: reserved.buyerEmail,
+      orderId: reserved.orderId,
+      paymentMode,
+    });
+  }
+}
+
 async function storePurchaseAndGrantReferral(
   reserved: ReservedOrderLike,
   context: string,
+  paymentMode: string,
 ) {
   const stored = await storePremiumReportPurchase({
     email: reserved.buyerEmail,
@@ -45,16 +96,7 @@ async function storePurchaseAndGrantReferral(
     return stored;
   }
 
-  const referral = await grantReferralRewardOnPurchase({
-    buyerEmail: reserved.buyerEmail,
-    purchaseId: reserved.orderId,
-  });
-  if (!referral.ok) {
-    console.error(`[nicepay:return] referral grant failed (${context})`, referral);
-  } else {
-    console.log(`[nicepay:return] referral grant result (${context})`, referral);
-  }
-
+  await grantReferralRewardSafely(reserved, context, paymentMode);
   return stored;
 }
 
@@ -498,10 +540,19 @@ export async function POST(request: NextRequest) {
         reserved.dayPillar,
       );
       if (alreadyPurchased) {
-        console.log("[nicepay:return] already purchased; skipping approval", {
-          orderId: reserved.orderId,
-          tid: form.tid,
-        });
+        console.log(
+          "[nicepay:return] already purchased; skipping approval but granting referral",
+          {
+            orderId: reserved.orderId,
+            buyerEmail: reserved.buyerEmail,
+            tid: form.tid,
+          },
+        );
+        await grantReferralRewardSafely(
+          reserved,
+          "already_purchased",
+          paymentMode.mode,
+        );
         return redirectSeeOther(resultLocation(origin, reserved));
       }
 
@@ -547,7 +598,11 @@ export async function POST(request: NextRequest) {
             resultCode: approval.resultCode,
             resultMsg: approval.resultMsg,
           });
-          const stored = await storePurchaseAndGrantReferral(reserved, "u112");
+          const stored = await storePurchaseAndGrantReferral(
+            reserved,
+            "u112",
+            approval.paymentMode,
+          );
           if (!stored.ok) {
             return htmlMessage(stored.error, stored.status, {
               resultCode: approval.resultCode,
@@ -588,7 +643,11 @@ export async function POST(request: NextRequest) {
         return htmlMessage("승인된 주문번호가 요청 주문번호와 일치하지 않습니다.");
       }
 
-      const stored = await storePurchaseAndGrantReferral(reserved, "approved");
+      const stored = await storePurchaseAndGrantReferral(
+        reserved,
+        "approved",
+        paymentMode.mode,
+      );
       if (!stored.ok) {
         return htmlMessage(stored.error, stored.status);
       }

@@ -1,7 +1,69 @@
+import type { Gender } from "@/lib/domain/user";
+
 /**
- * Replace day-pillar phrases in card copy with the user's target name (render-time only).
+ * Replace day-pillar phrases and target pronouns in card copy at render time.
  * Does not modify cardsData — call with strings loaded from data at runtime.
  */
+
+export type TargetPronouns = {
+  subject: "그는" | "그녀는";
+  possessive: "그의" | "그녀의";
+  nominative: "그가" | "그녀가";
+  object: "그를" | "그녀를";
+};
+
+export function getTargetPronouns(targetGender: Gender): TargetPronouns {
+  return targetGender === "female"
+    ? {
+        subject: "그녀는",
+        possessive: "그녀의",
+        nominative: "그녀가",
+        object: "그녀를",
+      }
+    : {
+        subject: "그는",
+        possessive: "그의",
+        nominative: "그가",
+        object: "그를",
+      };
+}
+
+export function substituteTargetPronounsInText(
+  text: string,
+  targetGender: Gender,
+): string {
+  const {
+    subject: pronounSubject,
+    possessive: pronounPossessive,
+    nominative: pronounNominative,
+    object: pronounObject,
+  } = getTargetPronouns(targetGender);
+  return text
+    .split("{pronounPossessive}")
+    .join(pronounPossessive)
+    .split("{pronounSubject}")
+    .join(pronounSubject)
+    .split("{pronounNominative}")
+    .join(pronounNominative)
+    .split("{pronounObject}")
+    .join(pronounObject)
+    .split("그녀의")
+    .join(pronounPossessive)
+    .split("그의")
+    .join(pronounPossessive)
+    .split("그녀는")
+    .join(pronounSubject)
+    .split("그는")
+    .join(pronounSubject)
+    .split("그녀가")
+    .join(pronounNominative)
+    .split("그가")
+    .join(pronounNominative)
+    .split("그녀를")
+    .join(pronounObject)
+    .split("그를")
+    .join(pronounObject);
+}
 
 export function substituteDayPillarInText(
   text: string,
@@ -21,6 +83,18 @@ export function substituteDayPillarInText(
   return s;
 }
 
+function substituteReportText(
+  text: string,
+  dayPillar: string,
+  displayName: string,
+  targetGender: Gender,
+) {
+  return substituteTargetPronounsInText(
+    substituteDayPillarInText(text, dayPillar, displayName),
+    targetGender,
+  );
+}
+
 type BasicCardLike = {
   title: string;
   oneLine: string;
@@ -34,10 +108,13 @@ export function substituteDayPillarInBasicCard<T extends BasicCardLike>(
   basicCard: T,
   dayPillar: string,
   displayName: string,
+  targetGender: Gender,
 ): T {
   const name = displayName.trim();
-  if (!name || !dayPillar) return basicCard;
-  const sub = (t: string) => substituteDayPillarInText(t, dayPillar, name);
+  const sub = (t: string) =>
+    name && dayPillar
+      ? substituteReportText(t, dayPillar, name, targetGender)
+      : substituteTargetPronounsInText(t, targetGender);
   return {
     ...basicCard,
     title: sub(basicCard.title),
@@ -76,10 +153,13 @@ function substituteLoveStrategySide<T extends LoveStrategySideLike>(
   side: T,
   dayPillar: string,
   displayName: string,
+  targetGender: Gender,
 ): T {
   const name = displayName.trim();
-  if (!name || !dayPillar) return side;
-  const sub = (t: string) => substituteDayPillarInText(t, dayPillar, name);
+  const sub = (t: string) =>
+    name && dayPillar
+      ? substituteReportText(t, dayPillar, name, targetGender)
+      : substituteTargetPronounsInText(t, targetGender);
   const tips = side.practicalTips;
   return {
     ...side,
@@ -125,16 +205,30 @@ export function substituteDayPillarInLoveStrategy<
     male?: LoveStrategySideLike;
     female?: LoveStrategySideLike;
   },
->(loveStrategy: T, dayPillar: string, displayName: string): T {
+>(
+  loveStrategy: T,
+  dayPillar: string,
+  displayName: string,
+  targetGender: Gender,
+): T {
   const name = displayName.trim();
-  if (!name || !dayPillar) return loveStrategy;
   return {
     ...loveStrategy,
     male: loveStrategy.male
-      ? substituteLoveStrategySide(loveStrategy.male, dayPillar, name)
+      ? substituteLoveStrategySide(
+          loveStrategy.male,
+          dayPillar,
+          name,
+          targetGender,
+        )
       : undefined,
     female: loveStrategy.female
-      ? substituteLoveStrategySide(loveStrategy.female, dayPillar, name)
+      ? substituteLoveStrategySide(
+          loveStrategy.female,
+          dayPillar,
+          name,
+          targetGender,
+        )
       : undefined,
   };
 }

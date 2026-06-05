@@ -195,15 +195,21 @@ export default async function ResultPage({ searchParams }: ResultPageProps) {
     : undefined;
 
   const basicCard =
-    basicCardRaw && userProvidedTargetName && dayPillar
-      ? substituteDayPillarInBasicCard(basicCardRaw, dayPillar, userProvidedTargetName)
+    basicCardRaw
+      ? substituteDayPillarInBasicCard(
+          basicCardRaw,
+          dayPillar ?? "",
+          userProvidedTargetName,
+          gender,
+        )
       : basicCardRaw;
   const loveStrategy =
-    loveStrategyRaw && userProvidedTargetName && dayPillar
+    loveStrategyRaw
       ? substituteDayPillarInLoveStrategy(
           loveStrategyRaw,
-          dayPillar,
+          dayPillar ?? "",
           userProvidedTargetName,
+          gender,
         )
       : loveStrategyRaw;
 
