@@ -14,6 +14,10 @@ import {
   normalizeTargetBirthDateFromStorage,
 } from "@/lib/purchaseBirthNormalize";
 import { supabase } from "@/lib/supabaseClient";
+import { refreshServerSessionUsers } from "@/lib/client/serverSessionSync";
+import type { Gender } from "@/lib/domain/user";
+import { STORAGE_PENDING_PARTNER_PHOTO_KEY } from "@/lib/storage/keys";
+import { persistNicepayPurchaseLocally } from "@/lib/storage/userStore";
 
 const ResultIsPaidContext = createContext(false);
 
@@ -23,17 +27,25 @@ export function useResultIsPaid(): boolean {
 
 type ResultIsPaidGateProps = {
   serverIsPaid: boolean;
+  targetName: string;
+  gender: Gender;
   birthdate: string;
   birthtime: string;
   dayPillar: string | null;
+  reportId: string;
+  resultSource: string;
   children: ReactNode;
 };
 
 export default function ResultIsPaidGate({
   serverIsPaid,
+  targetName,
+  gender,
   birthdate,
   birthtime,
   dayPillar,
+  reportId,
+  resultSource,
   children,
 }: ResultIsPaidGateProps) {
   const { user, isReady } = useAuth();
@@ -49,11 +61,19 @@ export default function ResultIsPaidGate({
           typeof dayPillar === "string"
             ? normalizeDayPillarForPurchase(dayPillar)
             : null;
+        let localMatch = false;
+        let supabaseHit = false;
+        let finalPaid = serverIsPaid;
+        const isNicepaySuccess =
+          resultSource === "nicepay" && reportId.startsWith("premium-");
 
         console.log("[result:isPaid:client] input", {
           serverIsPaid,
           isReady,
           userEmail: user?.email ?? null,
+          reportId,
+          resultSource,
+          isNicepaySuccess,
           birthdateQuery: birthdate,
           birthtimeQuery: birthtime,
           normalizedBirthdate: wantBirth,
@@ -62,6 +82,13 @@ export default function ResultIsPaidGate({
         });
 
         if (!wantBirth || !wantPillar) {
+          console.log("[result:isPaid:client] decision", {
+            serverIsPaid,
+            localMatch,
+            supabaseHit,
+            finalPaid,
+            reason: "missing_match_key",
+          });
           if (!cancelled) setPaid(serverIsPaid);
           return;
         }
@@ -69,24 +96,75 @@ export default function ResultIsPaidGate({
         if (!isReady) return;
 
         if (!user?.email) {
+          console.log("[result:isPaid:client] decision", {
+            serverIsPaid,
+            localMatch,
+            supabaseHit,
+            finalPaid,
+            reason: "missing_user",
+          });
           if (!cancelled) setPaid(serverIsPaid);
           return;
         }
 
         const emailKey = user.email.trim().toLowerCase();
 
-        const localMatch = (user.purchasedReports ?? []).some((r) => {
+        localMatch = (user.purchasedReports ?? []).some((r) => {
           const rb = normalizeTargetBirthDateForPurchase(r.birth);
           const rp = normalizeDayPillarForPurchase(r.ilju);
           return rb === wantBirth && rp === wantPillar;
         });
 
+        if (!localMatch && isNicepaySuccess) {
+          const pendingPhoto = (() => {
+            try {
+              const raw = sessionStorage.getItem(STORAGE_PENDING_PARTNER_PHOTO_KEY);
+              return raw && raw.startsWith("data:image/") ? raw : null;
+            } catch {
+              return null;
+            }
+          })();
+          const persisted = persistNicepayPurchaseLocally({
+            buyerEmail: emailKey,
+            reportId,
+            targetName,
+            birthdate,
+            birthtime,
+            gender,
+            dayPillar: wantPillar,
+            photoDataUrl: pendingPhoto,
+          });
+          console.log("[result:isPaid:client] nicepay local persist", persisted);
+          if (persisted.ok) {
+            localMatch = true;
+            finalPaid = true;
+            void refreshServerSessionUsers().catch((e) => {
+              console.error("[result:isPaid:client] session refresh failed", e);
+            });
+          }
+        }
+
         if (localMatch) {
+          finalPaid = true;
+          console.log("[result:isPaid:client] decision", {
+            serverIsPaid,
+            localMatch,
+            supabaseHit,
+            finalPaid,
+            reason: "local_match",
+          });
           if (!cancelled) setPaid(true);
           return;
         }
 
         if (!supabase) {
+          console.log("[result:isPaid:client] decision", {
+            serverIsPaid,
+            localMatch,
+            supabaseHit,
+            finalPaid,
+            reason: "supabase_unavailable",
+          });
           if (!cancelled) setPaid(serverIsPaid);
           return;
         }
@@ -100,12 +178,18 @@ export default function ResultIsPaidGate({
 
         if (error) {
           console.error("[result:isPaid:client] purchases select error", error);
+          console.log("[result:isPaid:client] decision", {
+            serverIsPaid,
+            localMatch,
+            supabaseHit,
+            finalPaid,
+            reason: "supabase_error",
+          });
           if (!cancelled) setPaid(serverIsPaid);
           return;
         }
 
         const rows = data ?? [];
-        let hit = false;
         for (const row of rows) {
           const rowBirth = normalizeTargetBirthDateFromStorage(
             (row as { target_birth_date?: unknown }).target_birth_date,
@@ -114,11 +198,19 @@ export default function ResultIsPaidGate({
             String((row as { day_pillar?: unknown }).day_pillar ?? ""),
           );
           if (rowBirth === wantBirth && rowPillar === wantPillar) {
-            hit = true;
+            supabaseHit = true;
             break;
           }
         }
-        if (!cancelled) setPaid(hit || serverIsPaid);
+        finalPaid = supabaseHit || serverIsPaid;
+        console.log("[result:isPaid:client] decision", {
+          serverIsPaid,
+          localMatch,
+          supabaseHit,
+          finalPaid,
+          reason: "supabase_checked",
+        });
+        if (!cancelled) setPaid(finalPaid);
       } catch (e) {
         console.error("[result:isPaid:client] effect error", e);
         if (!cancelled) setPaid(serverIsPaid);
@@ -129,7 +221,18 @@ export default function ResultIsPaidGate({
     return () => {
       cancelled = true;
     };
-  }, [serverIsPaid, birthdate, birthtime, dayPillar, user, isReady]);
+  }, [
+    serverIsPaid,
+    targetName,
+    gender,
+    birthdate,
+    birthtime,
+    dayPillar,
+    reportId,
+    resultSource,
+    user,
+    isReady,
+  ]);
 
   return (
     <ResultIsPaidContext.Provider value={paid}>

@@ -130,6 +130,7 @@ export default async function ResultPage({ searchParams }: ResultPageProps) {
   const dayPillar =
     dayPillarFromQuery ?? calculateIlju(birthdate, birthtime);
   const reportId = params.reportId?.trim() || "";
+  const resultSource = params.from?.trim() || "";
 
   /** 생년월일이 없고 일주도 확정되지 않으면 빈·깨진 링크로 간주 (궁합 등 dayPillar-only 유입은 유지) */
   if (!dayPillar && birthdate.trim().length === 0) {
@@ -284,9 +285,13 @@ export default async function ResultPage({ searchParams }: ResultPageProps) {
 
       <ResultIsPaidGate
         serverIsPaid={serverIsPaid}
+        targetName={name}
+        gender={gender}
         birthdate={birthdate}
         birthtime={birthtime}
         dayPillar={dayPillar}
+        reportId={reportId}
+        resultSource={resultSource}
       >
         <ResultPageBody
           name={name}

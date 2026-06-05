@@ -9,8 +9,10 @@ import { useAuth } from "../../contexts/AuthContext";
 import { PREMIUM_REPORT_PRICE_WON } from "../../lib/billing";
 import { calculateIlju } from "../../lib/calculateIlju";
 import type { Gender } from "../../lib/domain/user";
+import { getPaymentModeMessage, resolvePaymentMode } from "../../lib/paymentMode";
 
-const NICE_CLIENT_KEY = process.env.NEXT_PUBLIC_NICE_CLIENT_KEY ?? "";
+const NICEPAY_CLIENT_KEY = process.env.NEXT_PUBLIC_NICEPAY_CLIENT_KEY ?? "";
+const PAYMENT_MODE = resolvePaymentMode();
 
 type NicepayOrderResponse =
   | {
@@ -35,13 +37,7 @@ export default function CheckoutClient() {
   const [error, setError] = useState<string | null>(null);
   const [nicepayReady, setNicepayReady] = useState(false);
   const [isPaying, setIsPaying] = useState(false);
-
-  useEffect(() => {
-    console.log(
-      "CLIENT_KEY",
-      process.env.NEXT_PUBLIC_NICE_CLIENT_KEY
-    );
-  }, []);
+  const [hasRequestedPayment, setHasRequestedPayment] = useState(false);
 
   const name = searchParams.get("name")?.trim() || "";
   const birthdate = searchParams.get("birthdate") || "";
@@ -66,7 +62,15 @@ export default function CheckoutClient() {
     [birthdate, birthtime],
   );
 
-  const canPurchase = Boolean(birthdate && ilju && user);
+  const modeMessage = getPaymentModeMessage(PAYMENT_MODE.mode);
+  const paymentModeError = !PAYMENT_MODE.isValid
+    ? "결제 모드 설정이 올바르지 않습니다. NEXT_PUBLIC_PAYMENT_MODE는 nicepay-test 또는 nicepay-live만 사용할 수 있습니다."
+    : PAYMENT_MODE.isLiveBlockedOutsideProduction
+      ? "개발 환경에서는 실결제를 진행할 수 없습니다. NEXT_PUBLIC_PAYMENT_MODE를 nicepay-test로 변경해 주세요."
+      : null;
+  const canPurchase = Boolean(
+    birthdate && ilju && user && !paymentModeError && !hasRequestedPayment,
+  );
 
   const buildResultPath = () => {
     const q = new URLSearchParams();
@@ -79,12 +83,17 @@ export default function CheckoutClient() {
 
   const onConfirm = async () => {
     if (!user) return;
+    if (isPaying || hasRequestedPayment) return;
     setError(null);
     if (!birthdate || !ilju) {
       setError("생년월일 정보가 올바르지 않습니다. 다시 입력해 주세요.");
       return;
     }
-    if (!NICE_CLIENT_KEY) {
+    if (paymentModeError) {
+      setError(paymentModeError);
+      return;
+    }
+    if (!NICEPAY_CLIENT_KEY) {
       setError("나이스페이 클라이언트 키가 설정되지 않았습니다.");
       return;
     }
@@ -94,6 +103,7 @@ export default function CheckoutClient() {
     }
 
     setIsPaying(true);
+    setHasRequestedPayment(true);
     try {
       const response = await fetch("/api/nicepay/order", {
         method: "POST",
@@ -114,16 +124,25 @@ export default function CheckoutClient() {
           router.push(buildResultPath());
           return;
         }
+        setHasRequestedPayment(false);
         setError(
           orderError === "session_required"
             ? "로그인이 필요합니다. 다시 로그인해 주세요."
-            : "결제 주문을 생성하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+            : orderError === "invalid_payment_mode"
+              ? "결제 모드 설정이 올바르지 않습니다."
+              : orderError === "live_payment_blocked_in_development"
+                ? "개발 환경에서는 실결제를 진행할 수 없습니다. PG 테스트결제 모드로 변경해 주세요."
+                : "결제 주문을 생성하지 못했습니다. 잠시 후 다시 시도해 주세요.",
         );
         return;
       }
 
+      console.log("[checkout] AUTHNICE.requestPay", {
+        paymentMode: PAYMENT_MODE.mode,
+        clientKeyPrefix: NICEPAY_CLIENT_KEY.slice(0, 6),
+      });
       window.AUTHNICE.requestPay({
-        clientId: NICE_CLIENT_KEY,
+        clientId: NICEPAY_CLIENT_KEY,
         method: order.method,
         orderId: order.orderId,
         amount: order.amount,
@@ -136,12 +155,17 @@ export default function CheckoutClient() {
         language: order.language,
         fnError: (nicepayError) => {
           const message = nicepayError.errorMsg || "";
-          if (message.includes("사용자 취소")) return;
+          if (message.includes("사용자 취소")) {
+            setHasRequestedPayment(false);
+            return;
+          }
           setError(message || "결제창을 열지 못했습니다.");
+          setHasRequestedPayment(false);
         },
       });
     } catch (e) {
       console.error("[checkout] NICEPAY request failed", e);
+      setHasRequestedPayment(false);
       setError("결제창을 열지 못했습니다. 잠시 후 다시 시도해 주세요.");
     } finally {
       setIsPaying(false);
@@ -194,12 +218,12 @@ export default function CheckoutClient() {
           </p>
         </div>
         <div className="rounded-xl border border-fuchsia-300/25 bg-fuchsia-500/10 p-3 text-xs leading-5 text-fuchsia-100/90">
-          사용 가능 추천 보상:{" "}
+          사용 가능 추천 포인트:{" "}
           <span className="font-semibold text-white">
-            {user.referralRewardBalance.toLocaleString("ko-KR")}원
+            {user.referralRewardBalance.toLocaleString("ko-KR")}포인트
           </span>
           <br />
-          이번 결제는 정가 {PREMIUM_REPORT_PRICE_WON.toLocaleString("ko-KR")}원으로 진행됩니다.
+          적립된 포인트는 향후 리포트 구매 혜택에 사용할 수 있습니다.
         </div>
       </div>
 
@@ -209,13 +233,29 @@ export default function CheckoutClient() {
         </p>
       ) : null}
 
+      <p
+        className={`mt-4 rounded-xl border px-4 py-3 text-center text-xs leading-5 ${
+          PAYMENT_MODE.mode === "nicepay-live"
+            ? "border-rose-300/30 bg-rose-500/10 text-rose-100"
+            : "border-sky-300/30 bg-sky-500/10 text-sky-100"
+        }`}
+      >
+        {modeMessage}
+      </p>
+
+      {paymentModeError ? (
+        <p className="mt-3 text-center text-xs leading-5 text-rose-200/90">
+          {paymentModeError}
+        </p>
+      ) : null}
+
       <button
         type="button"
-        disabled={!canPurchase || !nicepayReady || isPaying}
+        disabled={!canPurchase || !nicepayReady || isPaying || hasRequestedPayment}
         onClick={onConfirm}
         className="mt-6 w-full rounded-2xl bg-gradient-to-r from-pink-500 via-fuchsia-500 to-violet-500 py-3.5 text-sm font-semibold text-white shadow-[0_10px_40px_rgba(217,70,239,0.35)] transition enabled:hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-40"
       >
-        {isPaying ? "결제창 여는 중..." : "3,900원 결제하기"}
+        {isPaying || hasRequestedPayment ? "결제 진행 중..." : "3,900원 결제하기"}
       </button>
 
       <p className="mt-4 text-center text-xs text-white/45">

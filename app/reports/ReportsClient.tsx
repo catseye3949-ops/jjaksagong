@@ -1,17 +1,60 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useAuth } from "../../contexts/AuthContext";
 import PurchasedReportsList from "../../components/PurchasedReportsList";
+import { supabase } from "@/lib/supabaseClient";
+import { mergeSupabasePurchasesLocally } from "@/lib/storage/userStore";
 
 export default function ReportsClient() {
-  const { user, isReady } = useAuth();
+  const { user, isReady, refresh } = useAuth();
 
   const loginHref = useMemo(
     () => `/login?next=${encodeURIComponent("/reports")}`,
     [],
   );
+
+  useEffect(() => {
+    if (!isReady || !user?.email || !supabase) return;
+    const client = supabase;
+    let cancelled = false;
+
+    const syncPurchases = async () => {
+      const email = user.email.trim().toLowerCase();
+      const { data, error } = await client
+        .from("purchases")
+        .select("*")
+        .eq("email", email);
+
+      if (cancelled) return;
+      if (error) {
+        console.error("[reports] purchases sync failed", error);
+        return;
+      }
+
+      const rows = data ?? [];
+      console.log("[reports] purchases sync rows", {
+        email,
+        count: rows.length,
+        rows: rows.map((row) => ({
+          target_name: (row as { target_name?: unknown }).target_name,
+          target_birth_date: (row as { target_birth_date?: unknown })
+            .target_birth_date,
+          day_pillar: (row as { day_pillar?: unknown }).day_pillar,
+        })),
+      });
+      const merged = mergeSupabasePurchasesLocally(email, rows);
+      if (merged.ok && merged.changed) {
+        refresh();
+      }
+    };
+
+    void syncPurchases();
+    return () => {
+      cancelled = true;
+    };
+  }, [isReady, user?.email, refresh]);
 
   return (
     <main className="relative min-h-screen overflow-hidden bg-[#0b1020] px-4 py-16 pt-20 text-white md:pt-24">
@@ -66,7 +109,6 @@ export default function ReportsClient() {
             <PurchasedReportsList
               reports={user.purchasedReports}
               variant="collection"
-              recipientEmail={user.email}
               emptyContent={
                 <div className="mt-8 space-y-6 text-center">
                   <p className="text-sm font-medium text-white/80">

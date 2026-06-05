@@ -11,19 +11,28 @@ import type { Gender, ProfileGender } from "../domain/user";
 export type DbUserRow = {
   id: string;
   email: string;
-  nickname: string;
+  nickname?: string | null;
   /** 회원 표시명(이름 또는 별명) */
-  name?: string;
+  name?: string | null;
   birth_date?: string | null;
+  birth_time?: string | null;
+  birth_time_unknown?: boolean | null;
+  /** 현재 회원가입 insert는 `gender` 컬럼에 프로필 성별을 저장합니다. */
+  gender?: Extract<ProfileGender, "male" | "female"> | null;
   profile_gender?: ProfileGender | null;
   mbti?: string | null;
+  marketing_consent?: boolean | null;
   marketing_opt_in?: boolean | null;
-  referral_code: string;
-  referred_by: string | null;
-  referral_reward_balance: number;
-  referral_success_count: number;
+  terms_agreed?: boolean | null;
+  privacy_agreed?: boolean | null;
+  password_digest?: string | null;
+  referral_code?: string | null;
+  referred_by?: string | null;
+  /** Stored referral points; DB column name is kept for compatibility. */
+  referral_reward_balance?: number | null;
+  referral_success_count?: number | null;
   created_at: string;
-  updated_at: string;
+  updated_at?: string | null;
 };
 
 /** purchases — 결제 건 (금액·정산 단위) */

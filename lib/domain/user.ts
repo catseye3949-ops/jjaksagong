@@ -33,7 +33,7 @@ export type UserAccount = {
   referralCode: string;
   /** Uppercase referral code of the referrer, if any */
   referredBy: string | null;
-  /** Accumulated discount balance (KRW) for next report — settlement with PG later */
+  /** Accumulated referral points for future report purchase benefits */
   referralRewardBalance: number;
   /** Referred users who completed their first paid purchase */
   referralSuccessCount: number;
@@ -45,10 +45,11 @@ export type UserAccount = {
   profileGender?: ProfileGender;
   /** 출생 시간(HH:mm 등) — 모름이면 생략 */
   birthTime?: string;
+  birthTimeUnknown?: boolean;
   mbti?: string;
   marketingConsent?: boolean;
   termsAgreed?: boolean;
   privacyAgreed?: boolean;
 };
 
-export const REFERRAL_REWARD_ON_REFEREE_FIRST_PURCHASE_KRW = 5000;
+export const REFERRAL_REWARD_POINTS_ON_REFEREE_FIRST_PURCHASE = 3900;

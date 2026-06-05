@@ -6,9 +6,6 @@ import type {
   UserAccount,
 } from "../domain/user";
 import {
-  REFERRAL_REWARD_ON_REFEREE_FIRST_PURCHASE_KRW,
-} from "../domain/user";
-import {
   normalizeDayPillarForPurchase,
   normalizeTargetBirthDateForPurchase,
 } from "../purchaseBirthNormalize";
@@ -141,6 +138,10 @@ function normalizeUserAccount(
       : undefined;
   if (birthTime !== u.birthTime) changed = true;
 
+  const birthTimeUnknown =
+    typeof u.birthTimeUnknown === "boolean" ? u.birthTimeUnknown : undefined;
+  if (birthTimeUnknown !== u.birthTimeUnknown) changed = true;
+
   const mbti =
     typeof u.mbti === "string" && u.mbti.trim() ? u.mbti.trim() : undefined;
   if (mbti !== u.mbti) changed = true;
@@ -175,12 +176,12 @@ function normalizeUserAccount(
       : null;
   if (referredBy !== (u.referredBy ?? null)) changed = true;
 
-  const referralRewardBalance =
+  const referralRewardPoints =
     typeof u.referralRewardBalance === "number" &&
     Number.isFinite(u.referralRewardBalance)
       ? u.referralRewardBalance
       : 0;
-  if (referralRewardBalance !== u.referralRewardBalance) changed = true;
+  if (referralRewardPoints !== u.referralRewardBalance) changed = true;
 
   const referralSuccessCount =
     typeof u.referralSuccessCount === "number" &&
@@ -205,13 +206,14 @@ function normalizeUserAccount(
     nickname,
     referralCode,
     referredBy,
-    referralRewardBalance,
+    referralRewardBalance: referralRewardPoints,
     referralSuccessCount,
     purchasedReports,
     ...(passwordDigest ? { passwordDigest } : {}),
     ...(birthDate ? { birthDate } : {}),
     ...(profileGender ? { profileGender } : {}),
     ...(birthTime ? { birthTime } : {}),
+    ...(birthTimeUnknown !== undefined ? { birthTimeUnknown } : {}),
     ...(mbti ? { mbti } : {}),
     ...(marketingConsent !== undefined ? { marketingConsent } : {}),
     ...(termsAgreed !== undefined ? { termsAgreed } : {}),
@@ -394,6 +396,7 @@ export async function signupUser(
     input.birthTimeUnknown || !input.birthTime?.trim()
       ? undefined
       : input.birthTime.trim();
+  const birthTimeUnknown = Boolean(input.birthTimeUnknown);
   const mbti = input.mbti?.trim() || undefined;
 
   const account: UserAccount = {
@@ -409,6 +412,7 @@ export async function signupUser(
     birthDate,
     profileGender: input.gender,
     ...(birthTime ? { birthTime } : {}),
+    birthTimeUnknown,
     ...(mbti ? { mbti } : {}),
     marketingConsent: Boolean(input.marketingConsent),
     termsAgreed: true,
@@ -418,24 +422,85 @@ export async function signupUser(
   users[email] = account;
   writeUsers(users);
 
-  if (supabase) {
-    const { error } = await supabase.from("users").insert({
+  const supabaseDebugInfo = {
+    url: process.env.NEXT_PUBLIC_SUPABASE_URL ?? null,
+    hasAnonKey: Boolean(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY),
+    supabaseReady: Boolean(supabase),
+    nodeEnv: process.env.NODE_ENV,
+  };
+  console.log("[signupUser] Supabase config", supabaseDebugInfo);
+
+  const rollbackLocalSignup = () => {
+    delete users[email];
+    writeUsers(users);
+  };
+
+  if (!supabase) {
+    console.error("[signupUser] Supabase client is null", supabaseDebugInfo);
+    if (process.env.NODE_ENV === "development") {
+      rollbackLocalSignup();
+      return {
+        ok: false,
+        error:
+          "Supabase 환경변수가 없어 users 테이블에 저장할 수 없습니다. .env.local의 NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY를 확인해 주세요.",
+      };
+    }
+    console.warn(
+      "[signupUser] Supabase unavailable; continuing with localStorage fallback outside development.",
+    );
+  } else {
+    const insertPayload = {
       email,
       name,
       birth_date: birthDate,
       gender: input.gender,
       password_digest: passwordDigest,
+      birth_time: birthTime ?? null,
+      birth_time_unknown: birthTimeUnknown,
+      mbti: mbti ?? null,
+      marketing_consent: Boolean(input.marketingConsent),
+      referral_code: account.referralCode,
+      referred_by: referredBy,
+      referral_reward_balance: 0,
+      referral_success_count: 0,
+      terms_agreed: true,
+      privacy_agreed: true,
       created_at: new Date().toISOString(),
+    };
+    console.log("[signupUser] Supabase users insert start", {
+      table: "users",
+      url: supabaseDebugInfo.url,
+      columns: Object.keys(insertPayload),
+      payload: {
+        ...insertPayload,
+        password_digest: "[redacted]",
+      },
     });
+
+    const { error } = await supabase.from("users").insert(insertPayload);
     if (error) {
-      console.error("[signupUser] Supabase insert failed:", error);
-      delete users[email];
-      writeUsers(users);
+      console.error("[signupUser] Supabase users insert failed", {
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code,
+        table: "users",
+        url: supabaseDebugInfo.url,
+      });
+      rollbackLocalSignup();
       return {
         ok: false,
-        error: "회원가입 처리 중 오류가 발생했어요. 잠시 후 다시 시도해 주세요.",
+        error:
+          process.env.NODE_ENV === "development"
+            ? `Supabase users 저장 실패: ${error.message}`
+            : "회원가입 처리 중 오류가 발생했어요. 잠시 후 다시 시도해 주세요.",
       };
     }
+    console.log("[signupUser] Supabase users insert succeeded", {
+      table: "users",
+      email,
+      url: supabaseDebugInfo.url,
+    });
   }
 
   writeSessionEmail(email);
@@ -458,7 +523,9 @@ export async function loginWithCredentials(
     try {
       const { data, error } = await supabase
         .from("users")
-        .select("email,name,birth_date,gender,password_digest")
+        .select(
+          "email,name,birth_date,gender,password_digest,birth_time,birth_time_unknown,mbti,marketing_consent,referral_code,referred_by,referral_reward_balance,referral_success_count,terms_agreed,privacy_agreed",
+        )
         .eq("email", key)
         .maybeSingle();
 
@@ -471,6 +538,16 @@ export async function loginWithCredentials(
           birth_date: string | null;
           gender: string | null;
           password_digest: string | null;
+          birth_time?: string | null;
+          birth_time_unknown?: boolean | null;
+          mbti?: string | null;
+          marketing_consent?: boolean | null;
+          referral_code?: string | null;
+          referred_by?: string | null;
+          referral_reward_balance?: number | null;
+          referral_success_count?: number | null;
+          terms_agreed?: boolean | null;
+          privacy_agreed?: boolean | null;
         };
 
         const remoteDigest =
@@ -484,6 +561,16 @@ export async function loginWithCredentials(
             return { ok: false, error: "비밀번호가 일치하지 않습니다." };
           }
 
+          const serverReferralCode = normalizeReferralInput(row.referral_code);
+          const serverReferralPoints =
+            typeof row.referral_reward_balance === "number"
+              ? row.referral_reward_balance
+              : 0;
+          const serverSuccessCount =
+            typeof row.referral_success_count === "number"
+              ? row.referral_success_count
+              : 0;
+
           if (!users[key]) {
             const profileGender: ProfileGender =
               row.gender === "female"
@@ -492,28 +579,57 @@ export async function loginWithCredentials(
                   ? "male"
                   : "male";
             const displayName = row.name?.trim() || "사용자";
+            const referralCode = serverReferralCode ?? uniqueReferralCode(users);
             users[key] = {
               email: key,
               name: displayName,
               nickname: displayName,
-              referralCode: uniqueReferralCode(users),
-              referredBy: null,
-              referralRewardBalance: 0,
-              referralSuccessCount: 0,
+              referralCode,
+              referredBy: normalizeReferralInput(row.referred_by),
+              referralRewardBalance: serverReferralPoints,
+              referralSuccessCount: serverSuccessCount,
               purchasedReports: [],
               passwordDigest: d,
               ...(row.birth_date?.trim()
                 ? { birthDate: row.birth_date.trim() }
                 : {}),
               profileGender,
-              termsAgreed: true,
-              privacyAgreed: true,
+              ...(row.birth_time?.trim() ? { birthTime: row.birth_time.trim() } : {}),
+              ...(typeof row.birth_time_unknown === "boolean"
+                ? { birthTimeUnknown: row.birth_time_unknown }
+                : {}),
+              ...(row.mbti?.trim() ? { mbti: row.mbti.trim() } : {}),
+              ...(typeof row.marketing_consent === "boolean"
+                ? { marketingConsent: row.marketing_consent }
+                : {}),
+              termsAgreed: row.terms_agreed ?? true,
+              privacyAgreed: row.privacy_agreed ?? true,
             };
             writeUsers(users);
+            if (!serverReferralCode) {
+              void supabase
+                .from("users")
+                .update({ referral_code: referralCode })
+                .eq("email", key);
+            }
           } else {
             const prev = users[key];
-            users[key] = { ...prev, passwordDigest: d };
+            users[key] = {
+              ...prev,
+              passwordDigest: d,
+              referralCode: serverReferralCode ?? prev.referralCode,
+              referralRewardBalance: serverReferralPoints,
+              referralSuccessCount: serverSuccessCount,
+              referredBy:
+                normalizeReferralInput(row.referred_by) ?? prev.referredBy,
+            };
             writeUsers(users);
+            if (!serverReferralCode && prev.referralCode) {
+              void supabase
+                .from("users")
+                .update({ referral_code: prev.referralCode })
+                .eq("email", key);
+            }
           }
 
           writeSessionEmail(key);
@@ -553,134 +669,239 @@ export function logout() {
   notifyAuthChanged();
 }
 
-export type PurchasePayload = {
-  name: string;
-  birth: string;
-  birthtime?: string;
+export type PersistNicepayPurchaseInput = {
+  buyerEmail: string;
+  reportId: string;
+  targetName: string;
+  birthdate: string;
+  birthtime: string;
   gender: Gender;
-  ilju: string;
-  photoDataUrl?: string;
+  dayPillar: string;
+  photoDataUrl?: string | null;
 };
 
-/**
- * Simulates a successful paid checkout. Later: call from payment-confirm API route
- * after verifying PG signature, using the same payload + user id from session.
- */
-export async function completeMockPurchase(
-  buyerEmail: string,
-  payload: PurchasePayload,
-): Promise<{ ok: true; report: PurchasedReport } | { ok: false; error: string }> {
+export function persistNicepayPurchaseLocally(
+  input: PersistNicepayPurchaseInput,
+):
+  | { ok: true; status: "added" | "already_exists"; report: PurchasedReport }
+  | { ok: false; error: string } {
   if (typeof window === "undefined") {
     return { ok: false, error: "브라우저에서만 처리할 수 있습니다." };
   }
+
+  const users = readUsers();
+  const buyer = users[input.buyerEmail.trim().toLowerCase()];
+  if (!buyer) {
+    return { ok: false, error: "로그인이 필요합니다." };
+  }
+
+  const birthNorm = normalizeTargetBirthDateForPurchase(input.birthdate);
+  const pillarNorm = normalizeDayPillarForPurchase(input.dayPillar);
+  if (!birthNorm || !pillarNorm) {
+    return { ok: false, error: "생년월일 또는 일주 정보가 올바르지 않습니다." };
+  }
+
+  const existing = (buyer.purchasedReports ?? []).find((r) => {
+    const rb = normalizeTargetBirthDateForPurchase(r.birth);
+    const rp = normalizeDayPillarForPurchase(r.ilju);
+    return rb === birthNorm && rp === pillarNorm;
+  });
+  if (existing) {
+    return { ok: true, status: "already_exists", report: existing };
+  }
+
+  const report: PurchasedReport = {
+    id: input.reportId || crypto.randomUUID(),
+    name: input.targetName.trim() || "이 사람",
+    birth: birthNorm,
+    gender: input.gender,
+    ilju: pillarNorm,
+    purchasedAt: new Date().toISOString(),
+    ...(input.birthtime.trim() ? { birthtime: input.birthtime.trim() } : {}),
+    ...(typeof input.photoDataUrl === "string" &&
+    input.photoDataUrl.startsWith("data:image/")
+      ? { photoDataUrl: input.photoDataUrl }
+      : {}),
+  };
+
+  buyer.purchasedReports = [...(buyer.purchasedReports ?? []), report];
+  users[buyer.email] = buyer;
+  writeUsers(users);
+  notifyAuthChanged();
+
+  return { ok: true, status: "added", report };
+}
+
+type SupabasePurchaseLike = Record<string, unknown>;
+
+function purchaseRowToPurchasedReport(
+  row: SupabasePurchaseLike,
+): PurchasedReport | null {
+  const birth = normalizeTargetBirthDateForPurchase(
+    String(row.target_birth_date ?? ""),
+  );
+  const ilju = normalizeDayPillarForPurchase(
+    row.day_pillar == null ? null : String(row.day_pillar),
+  );
+  if (!birth || !ilju) return null;
+
+  const rawGender = row.target_gender;
+  const gender: Gender = rawGender === "female" ? "female" : "male";
+  const rawName = String(row.target_name ?? "").trim();
+  const rawId = String(row.id ?? "").trim();
+  const rawCreatedAt = String(row.created_at ?? row.purchased_at ?? "").trim();
+
+  return {
+    id: rawId || `purchase-${birth}-${ilju}`,
+    name: rawName || "이 사람",
+    birth,
+    gender,
+    ilju,
+    purchasedAt: rawCreatedAt || new Date().toISOString(),
+  };
+}
+
+export function mergeSupabasePurchasesLocally(
+  buyerEmail: string,
+  rows: SupabasePurchaseLike[],
+): { ok: true; changed: boolean; count: number } | { ok: false; error: string } {
+  if (typeof window === "undefined") {
+    return { ok: false, error: "브라우저에서만 처리할 수 있습니다." };
+  }
+
   const users = readUsers();
   const buyer = users[buyerEmail.trim().toLowerCase()];
   if (!buyer) {
     return { ok: false, error: "로그인이 필요합니다." };
   }
 
-  const wasFirstPaidReport = buyer.purchasedReports.length === 0;
+  const incoming = rows
+    .map(purchaseRowToPurchasedReport)
+    .filter((r): r is PurchasedReport => r !== null);
 
-  const report: PurchasedReport = {
-    id: crypto.randomUUID(),
-    name: payload.name.trim() || "이 사람",
-    birth: payload.birth,
-    gender: payload.gender,
-    ilju: payload.ilju,
-    purchasedAt: new Date().toISOString(),
-    birthtime: payload.birthtime || "",
-    ...(payload.photoDataUrl &&
-    typeof payload.photoDataUrl === "string" &&
-    payload.photoDataUrl.startsWith("data:image/")
-      ? { photoDataUrl: payload.photoDataUrl }
-      : {}),
+  const merged = [...(buyer.purchasedReports ?? [])];
+  let changed = false;
+
+  for (const report of incoming) {
+    const idx = merged.findIndex((existing) => {
+      const existingBirth = normalizeTargetBirthDateForPurchase(existing.birth);
+      const existingPillar = normalizeDayPillarForPurchase(existing.ilju);
+      return existingBirth === report.birth && existingPillar === report.ilju;
+    });
+
+    if (idx === -1) {
+      merged.push(report);
+      changed = true;
+      continue;
+    }
+
+    const existing = merged[idx];
+    const next: PurchasedReport = {
+      ...existing,
+      id: existing.id || report.id,
+      name: report.name || existing.name,
+      birth: report.birth,
+      gender: report.gender,
+      ilju: report.ilju,
+      purchasedAt: existing.purchasedAt || report.purchasedAt,
+      ...(existing.birthtime ? { birthtime: existing.birthtime } : {}),
+      ...(existing.photoDataUrl ? { photoDataUrl: existing.photoDataUrl } : {}),
+    };
+    if (JSON.stringify(existing) !== JSON.stringify(next)) {
+      merged[idx] = next;
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    buyer.purchasedReports = merged;
+    users[buyer.email] = buyer;
+    writeUsers(users);
+    notifyAuthChanged();
+  }
+
+  return { ok: true, changed, count: merged.length };
+}
+
+export async function syncUserReferralProfileFromSupabase(
+  email: string,
+): Promise<{ ok: true; changed: boolean } | { ok: false; error: string }> {
+  if (typeof window === "undefined") {
+    return { ok: false, error: "브라우저에서만 처리할 수 있습니다." };
+  }
+  if (!supabase) {
+    return { ok: false, error: "Supabase를 사용할 수 없습니다." };
+  }
+
+  const key = email.trim().toLowerCase();
+  const users = readUsers();
+  const prev = users[key];
+  if (!prev) {
+    return { ok: false, error: "로그인이 필요합니다." };
+  }
+
+  const { data, error } = await supabase
+    .from("users")
+    .select(
+      "referral_code,referral_reward_balance,referral_success_count,referred_by",
+    )
+    .eq("email", key)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[syncUserReferralProfileFromSupabase] query failed", error);
+    return { ok: false, error: "추천 정보를 불러오지 못했습니다." };
+  }
+  if (!data) {
+    return { ok: true, changed: false };
+  }
+
+  const row = data as {
+    referral_code?: string | null;
+    referral_reward_balance?: number | null;
+    referral_success_count?: number | null;
+    referred_by?: string | null;
   };
 
-  buyer.purchasedReports = [...buyer.purchasedReports, report];
+  const nextReferralCode =
+    normalizeReferralInput(row.referral_code) ?? prev.referralCode;
+  const nextReferralPoints =
+    typeof row.referral_reward_balance === "number"
+      ? row.referral_reward_balance
+      : prev.referralRewardBalance;
+  const nextSuccessCount =
+    typeof row.referral_success_count === "number"
+      ? row.referral_success_count
+      : prev.referralSuccessCount;
+  const nextReferredBy =
+    normalizeReferralInput(row.referred_by) ?? prev.referredBy;
 
-  let referrerEmailForRollback: string | null = null;
-  if (wasFirstPaidReport && buyer.referredBy) {
-    const referrer = findUserByReferralCode(users, buyer.referredBy);
-    if (referrer && referrer.email !== buyer.email) {
-      referrer.referralSuccessCount += 1;
-      referrer.referralRewardBalance += REFERRAL_REWARD_ON_REFEREE_FIRST_PURCHASE_KRW;
-      users[referrer.email] = referrer;
-      referrerEmailForRollback = referrer.email;
-    }
-  }
+  const changed =
+    nextReferralCode !== prev.referralCode ||
+    nextReferralPoints !== prev.referralRewardBalance ||
+    nextSuccessCount !== prev.referralSuccessCount ||
+    nextReferredBy !== prev.referredBy;
 
-  users[buyer.email] = buyer;
-  writeUsers(users);
-
-  if (supabase) {
-    const birthNorm = normalizeTargetBirthDateForPurchase(payload.birth);
-    const pillarNorm = normalizeDayPillarForPurchase(payload.ilju);
-    if (!birthNorm || !pillarNorm) {
-      console.error(
-        "[completeMockPurchase] purchases insert skipped: normalize failed",
-        { birthNorm, pillarNorm },
-      );
-      buyer.purchasedReports = buyer.purchasedReports.filter((r) => r.id !== report.id);
-      if (referrerEmailForRollback) {
-        const ref = users[referrerEmailForRollback];
-        if (ref) {
-          ref.referralSuccessCount = Math.max(0, ref.referralSuccessCount - 1);
-          ref.referralRewardBalance = Math.max(
-            0,
-            ref.referralRewardBalance -
-              REFERRAL_REWARD_ON_REFEREE_FIRST_PURCHASE_KRW,
-          );
-          users[referrerEmailForRollback] = ref;
-        }
-      }
-      users[buyer.email] = buyer;
-      writeUsers(users);
-      return {
-        ok: false,
-        error: "생년월일 또는 일주 정보를 저장할 수 없어요. 입력 형식을 확인해 주세요.",
-      };
-    }
-    const insertPayload = {
-      email: buyer.email.trim().toLowerCase(),
-      target_name: report.name,
-      target_gender: report.gender,
-      target_birth_date: birthNorm,
-      day_pillar: pillarNorm,
-      created_at: new Date().toISOString(),
+  if (changed) {
+    users[key] = {
+      ...prev,
+      referralCode: nextReferralCode,
+      referralRewardBalance: nextReferralPoints,
+      referralSuccessCount: nextSuccessCount,
+      referredBy: nextReferredBy,
     };
-    console.log("[completeMockPurchase] purchases insert payload", insertPayload, {
-      rawBirth: payload.birth,
-      rawIlju: payload.ilju,
-      rawName: payload.name,
-      rawGender: payload.gender,
-    });
-    const { error } = await supabase.from("purchases").insert(insertPayload);
-    if (error) {
-      console.error("[completeMockPurchase] Supabase purchases insert failed:", error);
-      buyer.purchasedReports = buyer.purchasedReports.filter((r) => r.id !== report.id);
-      if (referrerEmailForRollback) {
-        const ref = users[referrerEmailForRollback];
-        if (ref) {
-          ref.referralSuccessCount = Math.max(0, ref.referralSuccessCount - 1);
-          ref.referralRewardBalance = Math.max(
-            0,
-            ref.referralRewardBalance -
-              REFERRAL_REWARD_ON_REFEREE_FIRST_PURCHASE_KRW,
-          );
-          users[referrerEmailForRollback] = ref;
-        }
-      }
-      users[buyer.email] = buyer;
-      writeUsers(users);
-      return {
-        ok: false,
-        error: "결제 기록을 저장하지 못했어요. 잠시 후 다시 시도해 주세요.",
-      };
-    }
+    writeUsers(users);
+    notifyAuthChanged();
   }
 
-  notifyAuthChanged();
-  return { ok: true, report };
+  if (!normalizeReferralInput(row.referral_code) && prev.referralCode) {
+    void supabase
+      .from("users")
+      .update({ referral_code: prev.referralCode })
+      .eq("email", key);
+  }
+
+  return { ok: true, changed };
 }
 
 export function updatePurchasedReportPhoto(

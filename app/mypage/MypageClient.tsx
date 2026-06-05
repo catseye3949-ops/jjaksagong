@@ -7,6 +7,8 @@ import { buildLoveFortuneFlowPoints } from "@/lib/buildLoveFortuneFlowPoints";
 import { calculateDaewoonList } from "@/lib/calculateDaewoonList";
 import { calculateIlju } from "@/lib/calculateIlju";
 import { calculateLoveFortunePeriods } from "@/lib/calculateLoveFortunePeriods";
+import { REFERRAL_REWARD_POINTS_ON_REFEREE_FIRST_PURCHASE } from "@/lib/domain/user";
+import { syncUserReferralProfileFromSupabase } from "@/lib/storage/userStore";
 import { useAuth } from "../../contexts/AuthContext";
 import { LoveFortuneFlowChart, type LoveFlowPoint } from "./LoveFortuneFlowChart";
 
@@ -67,6 +69,11 @@ export default function MypageClient() {
     if (!user || nameEditing) return;
     setNameDraft(user.name || user.nickname);
   }, [user, nameEditing, user?.name, user?.nickname]);
+
+  useEffect(() => {
+    if (!user?.email) return;
+    void syncUserReferralProfileFromSupabase(user.email);
+  }, [user?.email]);
 
   const beginEditName = useCallback(() => {
     if (!user) return;
@@ -311,15 +318,25 @@ export default function MypageClient() {
               </dd>
             </div>
             <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-              <dt className="text-white/50">사용 가능 추천 보상</dt>
+              <dt className="text-white/50">추천 보상</dt>
               <dd className="text-lg font-semibold text-pink-200">
-                {user.referralRewardBalance.toLocaleString("ko-KR")}원
+                {user.referralRewardBalance.toLocaleString("ko-KR")}포인트
               </dd>
             </div>
           </dl>
           <p className="mt-4 text-xs text-white/40">
-            추천 성공 {user.referralSuccessCount}명 · 친구의 첫 유료 결제 시
-            보상이 쌓입니다.
+            추천 보상:{" "}
+            {REFERRAL_REWARD_POINTS_ON_REFEREE_FIRST_PURCHASE.toLocaleString(
+              "ko-KR",
+            )}
+            포인트 · 친구가 첫 결제를 완료하면{" "}
+            {REFERRAL_REWARD_POINTS_ON_REFEREE_FIRST_PURCHASE.toLocaleString(
+              "ko-KR",
+            )}
+            포인트가 적립됩니다.
+            <br />
+            추천 성공 {user.referralSuccessCount}명 · 적립된 포인트는 향후
+            리포트 구매 혜택에 사용할 수 있습니다.
           </p>
         </section>
 

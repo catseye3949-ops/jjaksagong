@@ -5,6 +5,7 @@ import { JJAK_SESSION_COOKIE, verifySessionToken } from "@/lib/auth/sessionToken
 import { PREMIUM_REPORT_PRICE_WON } from "@/lib/billing";
 import { calculateIlju } from "@/lib/calculateIlju";
 import type { Gender } from "@/lib/domain/user";
+import { resolvePaymentMode } from "@/lib/paymentMode";
 import {
   getServiceOrigin,
   NICEPAY_GOODS_NAME,
@@ -29,8 +30,28 @@ function normalizeGender(raw: string | undefined): Gender {
 
 export async function POST(request: Request) {
   try {
+    const paymentMode = resolvePaymentMode();
+    console.log("[nicepay:order] payment mode", {
+      mode: paymentMode.mode,
+      rawMode: paymentMode.rawMode,
+      isValid: paymentMode.isValid,
+      nodeEnv: process.env.NODE_ENV,
+    });
+    if (!paymentMode.isValid) {
+      return NextResponse.json(
+        { ok: false, error: "invalid_payment_mode" },
+        { status: 500 },
+      );
+    }
+    if (paymentMode.isLiveBlockedOutsideProduction) {
+      return NextResponse.json(
+        { ok: false, error: "live_payment_blocked_in_development" },
+        { status: 403 },
+      );
+    }
+
     const clientKey = nicepayClientKey();
-    if (!clientKey || !process.env.NICE_SECRET_KEY?.trim()) {
+    if (!clientKey || !process.env.NICEPAY_SECRET_KEY?.trim()) {
       return NextResponse.json(
         { ok: false, error: "nicepay_env_missing" },
         { status: 500 },
@@ -75,6 +96,12 @@ export async function POST(request: Request) {
     }
 
     const orderId = `premium-${randomUUID()}`;
+    console.log("[nicepay:order] created order", {
+      orderId,
+      buyerEmail,
+      paymentMode: paymentMode.mode,
+      issuedAt: new Date().toISOString(),
+    });
     const payload: NicepayReservedPayload = {
       v: 1,
       orderId,

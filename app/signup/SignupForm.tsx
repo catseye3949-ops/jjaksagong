@@ -43,6 +43,10 @@ function parseGender(v: unknown): "" | "male" | "female" {
   return "";
 }
 
+function toCheckedBoolean(checked: boolean | "indeterminate"): boolean {
+  return checked === true;
+}
+
 export default function SignupForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -66,28 +70,35 @@ export default function SignupForm() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    try {
-      const raw = localStorage.getItem(STORAGE_SIGNUP_FORM_KEY);
-      if (!raw) {
-        setFormHydrated(true);
-        return;
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      try {
+        const raw = localStorage.getItem(STORAGE_SIGNUP_FORM_KEY);
+        if (!raw) {
+          setFormHydrated(true);
+          return;
+        }
+        const d = JSON.parse(raw) as Partial<SignupFormDraft>;
+        if (typeof d.name === "string") setName(d.name);
+        if (typeof d.email === "string") setEmail(d.email);
+        if (typeof d.password === "string") setPassword(d.password);
+        if (typeof d.birthDate === "string") setBirthDate(d.birthDate);
+        setGender(parseGender(d.gender));
+        if (typeof d.birthTime === "string") setBirthTime(d.birthTime);
+        if (typeof d.mbti === "string") setMbti(d.mbti);
+        if (typeof d.marketingConsent === "boolean")
+          setMarketingConsent(d.marketingConsent);
+        if (typeof d.termsAgreed === "boolean") setTermsAgreed(d.termsAgreed);
+        if (typeof d.privacyAgreed === "boolean") setPrivacyAgreed(d.privacyAgreed);
+      } catch {
+        /* ignore corrupt draft */
       }
-      const d = JSON.parse(raw) as Partial<SignupFormDraft>;
-      if (typeof d.name === "string") setName(d.name);
-      if (typeof d.email === "string") setEmail(d.email);
-      if (typeof d.password === "string") setPassword(d.password);
-      if (typeof d.birthDate === "string") setBirthDate(d.birthDate);
-      setGender(parseGender(d.gender));
-      if (typeof d.birthTime === "string") setBirthTime(d.birthTime);
-      if (typeof d.mbti === "string") setMbti(d.mbti);
-      if (typeof d.marketingConsent === "boolean")
-        setMarketingConsent(d.marketingConsent);
-      if (typeof d.termsAgreed === "boolean") setTermsAgreed(d.termsAgreed);
-      if (typeof d.privacyAgreed === "boolean") setPrivacyAgreed(d.privacyAgreed);
-    } catch {
-      /* ignore corrupt draft */
-    }
-    setFormHydrated(true);
+      setFormHydrated(true);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -126,14 +137,15 @@ export default function SignupForm() {
   const next = searchParams.get("next") || "/mypage";
   const safeNext = next.startsWith("/") ? next : "/mypage";
 
-  const consentOk = termsAgreed && privacyAgreed;
-  const requiredFilled = Boolean(
-    name.trim() &&
-      email.trim() &&
-      password.length >= 6 &&
-      birthDate &&
-      gender,
-  );
+  const consentOk = Boolean(termsAgreed) && Boolean(privacyAgreed);
+
+  const requiredFilled =
+    name.trim().length > 0 &&
+    email.trim().length > 0 &&
+    password.length >= 6 &&
+    Boolean(birthDate) &&
+    Boolean(gender);
+
   const canSubmit = consentOk && requiredFilled && !busy;
 
   const loginHref = useMemo(
@@ -199,10 +211,12 @@ export default function SignupForm() {
           </label>
           <input
             id="name"
+            name="name"
             type="text"
             autoComplete="name"
             value={name}
             onChange={(e) => setName(e.target.value)}
+            onInput={(e) => setName(e.currentTarget.value)}
             required
             className="w-full rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-white/35 focus:border-fuchsia-400/50"
             placeholder="프로필에 쓸 이름"
@@ -215,10 +229,12 @@ export default function SignupForm() {
           </label>
           <input
             id="email"
+            name="email"
             type="email"
             autoComplete="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            onInput={(e) => setEmail(e.currentTarget.value)}
             required
             className="w-full rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-white/35 focus:border-fuchsia-400/50"
             placeholder="you@example.com"
@@ -231,15 +247,19 @@ export default function SignupForm() {
           </label>
           <input
             id="password"
+            name="password"
             type="password"
             autoComplete="new-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
+            onInput={(e) => setPassword(e.currentTarget.value)}
             required
             minLength={6}
             className="w-full rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-white/35 focus:border-fuchsia-400/50"
-            placeholder="6자 이상"
           />
+          <p className="mt-2 text-xs text-white/45">
+            비밀번호는 6자 이상 입력해주세요.
+          </p>
         </div>
 
         <div>
@@ -248,9 +268,11 @@ export default function SignupForm() {
           </label>
           <input
             id="birthDate"
+            name="birthDate"
             type="date"
             value={birthDate}
             onChange={(e) => setBirthDate(e.target.value)}
+            onInput={(e) => setBirthDate(e.currentTarget.value)}
             required
             className="w-full rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-fuchsia-400/50"
           />
@@ -267,7 +289,7 @@ export default function SignupForm() {
                 name="gender"
                 value="male"
                 checked={gender === "male"}
-                onChange={() => setGender("male")}
+                onChange={(e) => setGender(parseGender(e.target.value))}
                 className="accent-fuchsia-500"
               />
               남성
@@ -278,7 +300,7 @@ export default function SignupForm() {
                 name="gender"
                 value="female"
                 checked={gender === "female"}
-                onChange={() => setGender("female")}
+                onChange={(e) => setGender(parseGender(e.target.value))}
                 className="accent-fuchsia-500"
               />
               여성
@@ -303,8 +325,9 @@ export default function SignupForm() {
               type="checkbox"
               checked={birthTimeUnknown}
               onChange={(e) => {
-                setBirthTimeUnknown(e.target.checked);
-                if (e.target.checked) setBirthTime("");
+                const checked = toCheckedBoolean(e.target.checked);
+                setBirthTimeUnknown(checked);
+                if (checked) setBirthTime("");
               }}
               className="rounded border-white/25 bg-white/10 accent-fuchsia-500"
             />
@@ -337,7 +360,7 @@ export default function SignupForm() {
           <input
             type="checkbox"
             checked={marketingConsent}
-            onChange={(e) => setMarketingConsent(e.target.checked)}
+            onChange={(e) => setMarketingConsent(toCheckedBoolean(e.target.checked))}
             className="mt-1 rounded border-white/25 bg-white/10 accent-fuchsia-500"
           />
           <span>마케팅 정보 수신에 동의합니다. (선택)</span>
@@ -362,7 +385,7 @@ export default function SignupForm() {
             <input
               type="checkbox"
               checked={termsAgreed}
-              onChange={(e) => setTermsAgreed(e.target.checked)}
+              onChange={(e) => setTermsAgreed(toCheckedBoolean(e.target.checked))}
               className="mt-1 rounded border-white/25 bg-white/10 accent-fuchsia-500"
             />
             <span>
@@ -380,7 +403,7 @@ export default function SignupForm() {
             <input
               type="checkbox"
               checked={privacyAgreed}
-              onChange={(e) => setPrivacyAgreed(e.target.checked)}
+              onChange={(e) => setPrivacyAgreed(toCheckedBoolean(e.target.checked))}
               className="mt-1 rounded border-white/25 bg-white/10 accent-fuchsia-500"
             />
             <span>
