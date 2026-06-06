@@ -273,7 +273,7 @@ export default function MainPage() {
                         type="text"
                         value={form.name}
                         onChange={handleChange}
-                        placeholder="예: 김유경"
+                        placeholder=""
                         className="h-[52px] w-full rounded-2xl border border-white/20 bg-[#1a1024] px-4 text-white outline-none transition focus:border-fuchsia-300"
                       />
                     </div>
@@ -585,7 +585,7 @@ export default function MainPage() {
                         type="text"
                         value={form.name}
                         onChange={handleChange}
-                        placeholder="예: 김유경"
+                        placeholder=""
                         className="w-full rounded-2xl border border-slate-300 px-4 py-3 outline-none transition focus:border-violet-500"
                       />
                     </div>
