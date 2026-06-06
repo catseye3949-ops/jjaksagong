@@ -299,6 +299,114 @@ export function findUserByReferralCode(
   );
 }
 
+async function findReferrerByReferralCodeInSupabase(code: string) {
+  if (!supabase) return null;
+  const normalized = normalizeReferralInput(code);
+  if (!normalized) return null;
+
+  const { data, error } = await supabase
+    .from("users")
+    .select("email, referral_code")
+    .eq("referral_code", normalized)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[signupUser] Supabase referrer lookup failed", {
+      code: normalized,
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+    });
+    return null;
+  }
+
+  const email =
+    typeof (data as { email?: unknown } | null)?.email === "string"
+      ? String((data as { email: string }).email).trim().toLowerCase()
+      : null;
+  if (!email) return null;
+
+  return { email, referralCode: normalized };
+}
+
+async function resolveReferrerForSignup(
+  users: Record<string, UserAccount>,
+  rawReferralCode: string | null | undefined,
+  buyerEmail: string,
+): Promise<{ ok: true; referredBy: string | null } | { ok: false; error: string }> {
+  const referredBy = normalizeReferralInput(rawReferralCode);
+  if (!referredBy) {
+    return { ok: true, referredBy: null };
+  }
+
+  const localReferrer = findUserByReferralCode(users, referredBy);
+  const supabaseReferrer = localReferrer
+    ? null
+    : await findReferrerByReferralCodeInSupabase(referredBy);
+  const referrerEmail = localReferrer?.email ?? supabaseReferrer?.email ?? null;
+
+  console.log("[signupUser] referrer resolution", {
+    buyerEmail,
+    referredBy,
+    localReferrerEmail: localReferrer?.email ?? null,
+    supabaseReferrerEmail: supabaseReferrer?.email ?? null,
+    referrerEmail,
+  });
+
+  if (!referrerEmail) {
+    return { ok: false, error: "유효하지 않은 추천 코드입니다." };
+  }
+  if (referrerEmail === buyerEmail) {
+    return { ok: false, error: "본인 추천 코드는 사용할 수 없습니다." };
+  }
+
+  return { ok: true, referredBy };
+}
+
+async function backfillReferredByToSupabase(
+  email: string,
+  referredBy: string | null | undefined,
+) {
+  if (!supabase) return;
+  const key = email.trim().toLowerCase();
+  const normalized = normalizeReferralInput(referredBy);
+  if (!normalized) return;
+
+  const { data, error: readError } = await supabase
+    .from("users")
+    .select("referred_by")
+    .eq("email", key)
+    .maybeSingle();
+
+  if (readError) {
+    console.error("[signupUser] referred_by backfill read failed", {
+      email: key,
+      message: readError.message,
+      details: readError.details,
+      hint: readError.hint,
+    });
+    return;
+  }
+
+  if (normalizeReferralInput((data as { referred_by?: string | null } | null)?.referred_by)) {
+    return;
+  }
+
+  const { error: updateError } = await supabase
+    .from("users")
+    .update({ referred_by: normalized })
+    .eq("email", key);
+
+  console.log("[signupUser] referred_by backfill", {
+    email: key,
+    referredBy: normalized,
+    ok: !updateError,
+    message: updateError?.message,
+    details: updateError?.details,
+    hint: updateError?.hint,
+  });
+}
+
 export function updateUserDisplayName(
   email: string,
   nextDisplayName: string,
@@ -378,18 +486,21 @@ export async function signupUser(
     return { ok: false, error: "이미 가입된 이메일입니다." };
   }
 
-  let referredBy = normalizeReferralInput(input.referredBy);
-  if (referredBy) {
-    const referrer = findUserByReferralCode(users, referredBy);
-    if (!referrer) {
-      return { ok: false, error: "유효하지 않은 추천 코드입니다." };
-    }
-    if (referrer.email === email) {
-      return { ok: false, error: "본인 추천 코드는 사용할 수 없습니다." };
-    }
-  } else {
-    referredBy = null;
+  console.log("[signupUser] input referral", {
+    email,
+    inputReferredBy: input.referredBy ?? null,
+    normalizedInputReferredBy: normalizeReferralInput(input.referredBy),
+  });
+
+  const referrerResolution = await resolveReferrerForSignup(
+    users,
+    input.referredBy,
+    email,
+  );
+  if (!referrerResolution.ok) {
+    return { ok: false, error: referrerResolution.error };
   }
+  const referredBy = referrerResolution.referredBy;
 
   const passwordDigest = await digestPassword(email, password);
   const birthTime =
@@ -477,7 +588,11 @@ export async function signupUser(
       },
     });
 
-    const { error } = await supabase.from("users").insert(insertPayload);
+    const { data: insertedRow, error } = await supabase
+      .from("users")
+      .insert(insertPayload)
+      .select("email, referred_by, referral_code")
+      .maybeSingle();
     if (error) {
       console.error("[signupUser] Supabase users insert failed", {
         message: error.message,
@@ -496,11 +611,28 @@ export async function signupUser(
             : "회원가입 처리 중 오류가 발생했어요. 잠시 후 다시 시도해 주세요.",
       };
     }
-    console.log("[signupUser] Supabase users insert succeeded", {
+
+    const insertedReferredBy = normalizeReferralInput(
+      (insertedRow as { referred_by?: string | null } | null)?.referred_by,
+    );
+    console.log("[signupUser] Supabase users insert verify", {
       table: "users",
       email,
+      expectedReferredBy: referredBy,
+      insertedReferredBy,
+      insertedReferralCode: (insertedRow as { referral_code?: string | null } | null)
+        ?.referral_code,
       url: supabaseDebugInfo.url,
     });
+
+    if (referredBy && insertedReferredBy !== referredBy) {
+      console.warn("[signupUser] referred_by missing after insert; backfilling", {
+        email,
+        expectedReferredBy: referredBy,
+        insertedReferredBy,
+      });
+      await backfillReferredByToSupabase(email, referredBy);
+    }
   }
 
   writeSessionEmail(email);
@@ -612,16 +744,20 @@ export async function loginWithCredentials(
                 .update({ referral_code: referralCode })
                 .eq("email", key);
             }
+            if (users[key].referredBy && !normalizeReferralInput(row.referred_by)) {
+              void backfillReferredByToSupabase(key, users[key].referredBy);
+            }
           } else {
             const prev = users[key];
+            const nextReferredBy =
+              normalizeReferralInput(row.referred_by) ?? prev.referredBy;
             users[key] = {
               ...prev,
               passwordDigest: d,
               referralCode: serverReferralCode ?? prev.referralCode,
               referralRewardBalance: serverReferralPoints,
               referralSuccessCount: serverSuccessCount,
-              referredBy:
-                normalizeReferralInput(row.referred_by) ?? prev.referredBy,
+              referredBy: nextReferredBy,
             };
             writeUsers(users);
             if (!serverReferralCode && prev.referralCode) {
@@ -629,6 +765,9 @@ export async function loginWithCredentials(
                 .from("users")
                 .update({ referral_code: prev.referralCode })
                 .eq("email", key);
+            }
+            if (nextReferredBy && !normalizeReferralInput(row.referred_by)) {
+              void backfillReferredByToSupabase(key, nextReferredBy);
             }
           }
 
@@ -823,6 +962,37 @@ export function mergeSupabasePurchasesLocally(
   return { ok: true, changed, count: merged.length };
 }
 
+export function setReferralRewardBalanceLocally(
+  email: string,
+  referralRewardBalance: number,
+): { ok: true; changed: boolean } | { ok: false; error: string } {
+  if (typeof window === "undefined") {
+    return { ok: false, error: "브라우저에서만 처리할 수 있습니다." };
+  }
+
+  const key = email.trim().toLowerCase();
+  const users = readUsers();
+  const prev = users[key];
+  if (!prev) {
+    return { ok: false, error: "로그인이 필요합니다." };
+  }
+
+  const nextBalance = Number.isFinite(referralRewardBalance)
+    ? Math.max(0, Math.floor(referralRewardBalance))
+    : prev.referralRewardBalance;
+  if (prev.referralRewardBalance === nextBalance) {
+    return { ok: true, changed: false };
+  }
+
+  users[key] = {
+    ...prev,
+    referralRewardBalance: nextBalance,
+  };
+  writeUsers(users);
+  notifyAuthChanged();
+  return { ok: true, changed: true };
+}
+
 export async function syncUserReferralProfileFromSupabase(
   email: string,
 ): Promise<{ ok: true; changed: boolean } | { ok: false; error: string }> {
@@ -899,6 +1069,10 @@ export async function syncUserReferralProfileFromSupabase(
       .from("users")
       .update({ referral_code: prev.referralCode })
       .eq("email", key);
+  }
+
+  if (nextReferredBy && !normalizeReferralInput(row.referred_by)) {
+    void backfillReferredByToSupabase(key, nextReferredBy);
   }
 
   return { ok: true, changed };

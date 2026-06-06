@@ -329,7 +329,9 @@ export default function MypageClient() {
             {REFERRAL_REWARD_POINTS_ON_REFEREE_FIRST_PURCHASE.toLocaleString(
               "ko-KR",
             )}
-            포인트 · 친구가 첫 결제를 완료하면{" "}
+            포인트
+            <br />
+            친구가 첫 결제를 완료하면{" "}
             {REFERRAL_REWARD_POINTS_ON_REFEREE_FIRST_PURCHASE.toLocaleString(
               "ko-KR",
             )}
@@ -337,6 +339,8 @@ export default function MypageClient() {
             <br />
             추천 성공 {user.referralSuccessCount}명 · 적립된 포인트는 향후
             리포트 구매 혜택에 사용할 수 있습니다.
+            <br />
+            친구 2명 추천 성공 시 리포트 1회 무료 구매가 가능합니다.
           </p>
         </section>
 

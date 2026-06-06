@@ -52,4 +52,4 @@ export type UserAccount = {
   privacyAgreed?: boolean;
 };
 
-export const REFERRAL_REWARD_POINTS_ON_REFEREE_FIRST_PURCHASE = 3900;
+export const REFERRAL_REWARD_POINTS_ON_REFEREE_FIRST_PURCHASE = 1950;

@@ -12,9 +12,25 @@ create table if not exists public.referral_rewards (
   purchase_id text not null,
   buyer_email text not null,
   referrer_email text not null,
-  reward_points integer not null,
+  referral_code text not null,
+  reward_points integer not null default 1950,
   created_at timestamptz not null default now()
 );
+
+alter table public.referral_rewards
+  add column if not exists referral_code text;
+
+update public.referral_rewards rr
+set referral_code = u.referral_code
+from public.users u
+where rr.referral_code is null
+  and lower(rr.referrer_email) = lower(u.email)
+  and u.referral_code is not null;
+
+alter table public.referral_rewards
+  alter column referral_code set not null;
+
+comment on column public.referral_rewards.referral_code is 'Referrer referral code used for this reward grant.';
 
 do $$
 begin
@@ -37,10 +53,10 @@ begin
 end $$;
 
 alter table public.referral_rewards
-  add column if not exists reward_points integer;
+  add column if not exists reward_points integer default 1950;
 
 update public.referral_rewards
-set reward_points = 3900
+set reward_points = 1950
 where reward_points is null;
 
 alter table public.referral_rewards

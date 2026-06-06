@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import AuthShell from "../../components/AuthShell";
 import { useAuth } from "../../contexts/AuthContext";
+import { normalizeReferralInput } from "../../lib/storage/userStore";
 import { STORAGE_SIGNUP_FORM_KEY } from "../../lib/storage/keys";
 const MBTI_TYPES = [
   "INTJ",
@@ -36,6 +37,7 @@ type SignupFormDraft = {
   marketingConsent: boolean;
   termsAgreed: boolean;
   privacyAgreed: boolean;
+  referredBy?: string;
 };
 
 function parseGender(v: unknown): "" | "male" | "female" {
@@ -91,6 +93,7 @@ export default function SignupForm() {
           setMarketingConsent(d.marketingConsent);
         if (typeof d.termsAgreed === "boolean") setTermsAgreed(d.termsAgreed);
         if (typeof d.privacyAgreed === "boolean") setPrivacyAgreed(d.privacyAgreed);
+        if (typeof d.referredBy === "string") setReferredBy(d.referredBy);
       } catch {
         /* ignore corrupt draft */
       }
@@ -100,6 +103,18 @@ export default function SignupForm() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!formHydrated) return;
+    const fromUrl =
+      searchParams.get("ref")?.trim() ||
+      searchParams.get("referral")?.trim() ||
+      searchParams.get("referredBy")?.trim() ||
+      "";
+    if (fromUrl) {
+      setReferredBy((prev) => prev.trim() || fromUrl);
+    }
+  }, [formHydrated, searchParams]);
 
   useEffect(() => {
     if (!formHydrated || typeof window === "undefined") return;
@@ -114,6 +129,7 @@ export default function SignupForm() {
       marketingConsent,
       termsAgreed,
       privacyAgreed,
+      referredBy,
     };
     try {
       localStorage.setItem(STORAGE_SIGNUP_FORM_KEY, JSON.stringify(draft));
@@ -132,6 +148,7 @@ export default function SignupForm() {
     marketingConsent,
     termsAgreed,
     privacyAgreed,
+    referredBy,
   ]);
 
   const next = searchParams.get("next") || "/mypage";
@@ -165,6 +182,11 @@ export default function SignupForm() {
       return;
     }
     setBusy(true);
+    const normalizedReferredBy = normalizeReferralInput(referredBy);
+    console.log("[SignupForm] submit referral", {
+      rawReferredBy: referredBy,
+      normalizedReferredBy,
+    });
     const result = await signup({
       name: name.trim(),
       email: email.trim(),
@@ -177,7 +199,7 @@ export default function SignupForm() {
       birthTimeUnknown,
       mbti: mbti || undefined,
       marketingConsent,
-      referredBy: referredBy.trim() || null,
+      referredBy: normalizedReferredBy,
     });
     setBusy(false);
     if (!result.ok) {
@@ -374,7 +396,7 @@ export default function SignupForm() {
             id="referral"
             type="text"
             value={referredBy}
-            onChange={(e) => setReferredBy(e.target.value)}
+            onChange={(e) => setReferredBy(e.target.value.toUpperCase())}
             className="w-full rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-white/35 focus:border-fuchsia-400/50"
             placeholder="친구가 공유한 코드"
           />

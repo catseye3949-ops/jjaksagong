@@ -7,6 +7,8 @@ import { getManAgeFromIsoDate } from "../lib/formatBirth";
 import { compressPartnerPhotoFile } from "../lib/image/compressPartnerPhoto";
 import { updatePurchasedReportPhoto } from "../lib/storage/userStore";
 
+const FALLBACK_IMAGE = "/images/front/no_image.png";
+
 type PurchasedReportPhotoEditorProps = {
   reportId: string;
   gender: Gender;
@@ -37,10 +39,6 @@ export default function PurchasedReportPhotoEditor({
   const previewUrl =
     user?.purchasedReports.find((r) => r.id === reportId)?.photoDataUrl ??
     null;
-  const placeholder =
-    gender === "female"
-      ? "/images/front/female.png"
-      : "/images/front/male.png";
 
   const flashSaved = useCallback(() => {
     setSavedFlash(true);
@@ -88,9 +86,12 @@ export default function PurchasedReportPhotoEditor({
       <div className="flex w-[4.5rem] shrink-0 flex-col items-center gap-1.5">
         <div className="relative h-14 w-14 overflow-hidden rounded-full border border-fuchsia-300/30 bg-white/5">
           <img
-            src={previewUrl || placeholder}
+            src={previewUrl || FALLBACK_IMAGE}
             alt=""
             className="h-full w-full object-cover"
+            onError={(e) => {
+              e.currentTarget.src = FALLBACK_IMAGE;
+            }}
           />
         </div>
         <input

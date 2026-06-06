@@ -8,8 +8,15 @@ import AuthShell from "../../components/AuthShell";
 import { useAuth } from "../../contexts/AuthContext";
 import { PREMIUM_REPORT_PRICE_WON } from "../../lib/billing";
 import { calculateIlju } from "../../lib/calculateIlju";
-import type { Gender } from "../../lib/domain/user";
+import {
+  REFERRAL_REWARD_POINTS_ON_REFEREE_FIRST_PURCHASE,
+  type Gender,
+} from "../../lib/domain/user";
 import { getPaymentModeMessage, resolvePaymentMode } from "../../lib/paymentMode";
+import {
+  mergeSupabasePurchasesLocally,
+  setReferralRewardBalanceLocally,
+} from "../../lib/storage/userStore";
 
 const NICEPAY_CLIENT_KEY = process.env.NEXT_PUBLIC_NICEPAY_CLIENT_KEY ?? "";
 const PAYMENT_MODE = resolvePaymentMode();
@@ -30,14 +37,25 @@ type NicepayOrderResponse =
     }
   | { ok: false; error: string };
 
+type PointsBalanceResponse =
+  | { ok: true; referralRewardBalance: number; pointPrice: number }
+  | { ok: false; error: string };
+
+type PointsPurchaseResponse =
+  | { ok: true; remainingPoints: number; purchase: Record<string, unknown> | null }
+  | { ok: false; error: string };
+
 export default function CheckoutClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user, isReady } = useAuth();
+  const { user, isReady, refresh } = useAuth();
   const [error, setError] = useState<string | null>(null);
   const [nicepayReady, setNicepayReady] = useState(false);
   const [isPaying, setIsPaying] = useState(false);
+  const [isPointPurchasing, setIsPointPurchasing] = useState(false);
   const [hasRequestedPayment, setHasRequestedPayment] = useState(false);
+  const [pointBalance, setPointBalance] = useState<number | null>(null);
+  const [isPointBalanceLoading, setIsPointBalanceLoading] = useState(false);
 
   const name = searchParams.get("name")?.trim() || "";
   const birthdate = searchParams.get("birthdate") || "";
@@ -68,9 +86,57 @@ export default function CheckoutClient() {
     : PAYMENT_MODE.isLiveBlockedOutsideProduction
       ? "개발 환경에서는 실결제를 진행할 수 없습니다. NEXT_PUBLIC_PAYMENT_MODE를 nicepay-test로 변경해 주세요."
       : null;
-  const canPurchase = Boolean(
-    birthdate && ilju && user && !paymentModeError && !hasRequestedPayment,
-  );
+  const hasBasicTargetInfo = Boolean(birthdate && ilju && user);
+  const displayPointBalance = pointBalance ?? user?.referralRewardBalance ?? 0;
+  const hasEnoughPoints = displayPointBalance >= PREMIUM_REPORT_PRICE_WON;
+  const cardPaymentBusy = isPaying || isPointPurchasing || hasRequestedPayment;
+  const cardPaymentDisabled = cardPaymentBusy;
+  const canUsePoints =
+    hasBasicTargetInfo &&
+    hasEnoughPoints &&
+    !cardPaymentBusy;
+
+  useEffect(() => {
+    setHasRequestedPayment(false);
+    setIsPaying(false);
+    setIsPointPurchasing(false);
+  }, []);
+
+  useEffect(() => {
+    if (!isReady || !user) return;
+    console.log("[checkout] card button disabled breakdown", {
+      cardPaymentDisabled,
+      cardPaymentBusy,
+      isPaying,
+      isPointPurchasing,
+      hasRequestedPayment,
+      hasBasicTargetInfo,
+      birthdate: birthdate || null,
+      ilju: ilju || null,
+      nicepayReady,
+      hasNicepayClientKey: Boolean(NICEPAY_CLIENT_KEY),
+      paymentMode: PAYMENT_MODE.mode,
+      paymentModeError,
+      displayPointBalance,
+      hasEnoughPoints,
+      showPointButton: hasEnoughPoints,
+    });
+  }, [
+    isReady,
+    user,
+    cardPaymentDisabled,
+    cardPaymentBusy,
+    isPaying,
+    isPointPurchasing,
+    hasRequestedPayment,
+    hasBasicTargetInfo,
+    birthdate,
+    ilju,
+    nicepayReady,
+    paymentModeError,
+    displayPointBalance,
+    hasEnoughPoints,
+  ]);
 
   const buildResultPath = () => {
     const q = new URLSearchParams();
@@ -81,9 +147,90 @@ export default function CheckoutClient() {
     return `/result?${q.toString()}`;
   };
 
+  useEffect(() => {
+    if (!isReady || !user) return;
+
+    let cancelled = false;
+    const loadPointBalance = async () => {
+      setIsPointBalanceLoading(true);
+      try {
+        const response = await fetch("/api/points/purchase", {
+          method: "GET",
+          credentials: "include",
+        });
+        const data = (await response.json()) as PointsBalanceResponse;
+        if (!cancelled && response.ok && data.ok) {
+          setPointBalance(data.referralRewardBalance);
+        }
+      } catch (e) {
+        console.error("[checkout] point balance fetch failed", e);
+      } finally {
+        if (!cancelled) setIsPointBalanceLoading(false);
+      }
+    };
+
+    void loadPointBalance();
+    return () => {
+      cancelled = true;
+    };
+  }, [isReady, user]);
+
+  const onPointPurchase = async () => {
+    if (!user || isPointPurchasing || hasRequestedPayment || isPaying) return;
+    setError(null);
+    if (!birthdate || !ilju) {
+      setError("생년월일 정보가 올바르지 않습니다. 다시 입력해 주세요.");
+      return;
+    }
+
+    setIsPointPurchasing(true);
+    try {
+      const response = await fetch("/api/points/purchase", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          targetName: name || "이 사람",
+          birthdate,
+          birthtime,
+          gender,
+        }),
+      });
+      const result = (await response.json()) as PointsPurchaseResponse;
+      if (!response.ok || !result.ok) {
+        const pointError = result.ok ? "server_error" : result.error;
+        setError(
+          pointError === "session_required"
+            ? "로그인이 필요합니다. 다시 로그인해 주세요."
+            : pointError === "insufficient_points"
+              ? "보유 추천 포인트가 부족합니다."
+              : pointError === "already_purchased"
+                ? "이미 구매한 리포트입니다. 결과 페이지에서 확인해 주세요."
+                : pointError === "service_role_required"
+                  ? "포인트 결제 서버 설정이 필요합니다."
+                  : "포인트 결제를 완료하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+        );
+        return;
+      }
+
+      setPointBalance(result.remainingPoints);
+      setReferralRewardBalanceLocally(user.email, result.remainingPoints);
+      if (result.purchase) {
+        mergeSupabasePurchasesLocally(user.email, [result.purchase]);
+      }
+      refresh();
+      router.push(buildResultPath());
+    } catch (e) {
+      console.error("[checkout] point purchase failed", e);
+      setError("포인트 결제를 완료하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+    } finally {
+      setIsPointPurchasing(false);
+    }
+  };
+
   const onConfirm = async () => {
     if (!user) return;
-    if (isPaying || hasRequestedPayment) return;
+    if (isPaying || hasRequestedPayment || isPointPurchasing) return;
     setError(null);
     if (!birthdate || !ilju) {
       setError("생년월일 정보가 올바르지 않습니다. 다시 입력해 주세요.");
@@ -155,12 +302,13 @@ export default function CheckoutClient() {
         language: order.language,
         fnError: (nicepayError) => {
           const message = nicepayError.errorMsg || "";
+          console.log("[checkout] AUTHNICE.fnError", { message });
+          setIsPaying(false);
+          setHasRequestedPayment(false);
           if (message.includes("사용자 취소")) {
-            setHasRequestedPayment(false);
             return;
           }
           setError(message || "결제창을 열지 못했습니다.");
-          setHasRequestedPayment(false);
         },
       });
     } catch (e) {
@@ -220,10 +368,14 @@ export default function CheckoutClient() {
         <div className="rounded-xl border border-fuchsia-300/25 bg-fuchsia-500/10 p-3 text-xs leading-5 text-fuchsia-100/90">
           사용 가능 추천 포인트:{" "}
           <span className="font-semibold text-white">
-            {user.referralRewardBalance.toLocaleString("ko-KR")}포인트
+            {displayPointBalance.toLocaleString("ko-KR")}포인트
           </span>
           <br />
-          적립된 포인트는 향후 리포트 구매 혜택에 사용할 수 있습니다.
+          {isPointBalanceLoading
+            ? "추천 포인트를 확인하는 중입니다."
+            : `친구가 첫 결제를 완료하면 ${REFERRAL_REWARD_POINTS_ON_REFEREE_FIRST_PURCHASE.toLocaleString(
+                "ko-KR",
+              )}포인트가 적립됩니다. 친구 2명 추천 성공 시 리포트 1회 무료 구매가 가능합니다.`}
         </div>
       </div>
 
@@ -249,13 +401,26 @@ export default function CheckoutClient() {
         </p>
       ) : null}
 
+      {hasEnoughPoints ? (
+        <button
+          type="button"
+          disabled={!canUsePoints}
+          onClick={onPointPurchase}
+          className="mt-6 w-full rounded-2xl border border-emerald-300/40 bg-emerald-400/15 py-3.5 text-sm font-semibold text-emerald-50 shadow-[0_10px_35px_rgba(52,211,153,0.18)] transition enabled:hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {isPointPurchasing
+            ? "포인트 결제 처리 중..."
+            : "3,900포인트로 리포트 열기"}
+        </button>
+      ) : null}
+
       <button
         type="button"
-        disabled={!canPurchase || !nicepayReady || isPaying || hasRequestedPayment}
+        disabled={cardPaymentDisabled}
         onClick={onConfirm}
-        className="mt-6 w-full rounded-2xl bg-gradient-to-r from-pink-500 via-fuchsia-500 to-violet-500 py-3.5 text-sm font-semibold text-white shadow-[0_10px_40px_rgba(217,70,239,0.35)] transition enabled:hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-40"
+        className="mt-3 w-full rounded-2xl bg-gradient-to-r from-pink-500 via-fuchsia-500 to-violet-500 py-3.5 text-sm font-semibold text-white shadow-[0_10px_40px_rgba(217,70,239,0.35)] transition enabled:hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-40"
       >
-        {isPaying || hasRequestedPayment ? "결제 진행 중..." : "3,900원 결제하기"}
+        {cardPaymentBusy ? "결제 진행 중..." : "3,900원 결제하기"}
       </button>
 
       <p className="mt-4 text-center text-xs text-white/45">

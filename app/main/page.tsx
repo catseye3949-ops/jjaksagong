@@ -6,6 +6,8 @@ import CompatibilityPanel from "@/components/CompatibilityPanel";
 import { compressPartnerPhotoFile } from "@/lib/image/compressPartnerPhoto";
 import { STORAGE_PENDING_PARTNER_PHOTO_KEY } from "@/lib/storage/keys";
 
+const FALLBACK_IMAGE = "/images/front/no_image.png";
+
 type FormState = {
   name: string;
   birthdate: string;
@@ -304,6 +306,9 @@ export default function MainPage() {
                                 src={partnerPhotoDataUrl}
                                 alt=""
                                 className="h-full w-full object-cover"
+                                onError={(e) => {
+                                  e.currentTarget.src = FALLBACK_IMAGE;
+                                }}
                               />
                             </div>
                             <button
@@ -613,6 +618,9 @@ export default function MainPage() {
                                 src={partnerPhotoDataUrl}
                                 alt=""
                                 className="h-full w-full object-cover"
+                                onError={(e) => {
+                                  e.currentTarget.src = FALLBACK_IMAGE;
+                                }}
                               />
                             </div>
                             <button

@@ -5,6 +5,8 @@ import { useAuth } from "../contexts/AuthContext";
 import type { Gender } from "../lib/domain/user";
 import { STORAGE_PENDING_PARTNER_PHOTO_KEY } from "../lib/storage/keys";
 
+const FALLBACK_IMAGE = "/images/front/no_image.png";
+
 type PartnerStrategyPhotoProps = {
   gender: Gender;
   /** Saved report id — when set, photo is read from the account copy */
@@ -17,20 +19,11 @@ type PartnerStrategyPhotoProps = {
 };
 
 export default function PartnerStrategyPhoto({
-  gender,
   reportId,
   variant = "centered",
 }: PartnerStrategyPhotoProps) {
   const { user } = useAuth();
   const [pending, setPending] = useState<string | null>(null);
-
-  const placeholder = useMemo(
-    () =>
-      gender === "female"
-        ? "/images/front/female.png"
-        : "/images/front/male.png",
-    [gender],
-  );
 
   const savedPhoto = useMemo(() => {
     if (!reportId || !user) return null;
@@ -57,17 +50,23 @@ export default function PartnerStrategyPhoto({
     variant === "pageHeader" ? (
       <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-full border border-fuchsia-300/35 bg-white/10 shadow-[0_8px_32px_rgba(217,70,239,0.25)] ring-1 ring-white/10 md:h-32 md:w-32">
         <img
-          src={src || placeholder}
+          src={src || FALLBACK_IMAGE}
           alt=""
           className="h-full w-full object-cover"
+          onError={(e) => {
+            e.currentTarget.src = FALLBACK_IMAGE;
+          }}
         />
       </div>
     ) : (
       <div className="relative h-36 w-36 overflow-hidden rounded-full border border-fuchsia-300/35 bg-white/10 shadow-[0_8px_32px_rgba(217,70,239,0.25)] ring-1 ring-white/10 md:h-48 md:w-48">
         <img
-          src={src || placeholder}
+          src={src || FALLBACK_IMAGE}
           alt=""
           className="h-full w-full object-cover"
+          onError={(e) => {
+            e.currentTarget.src = FALLBACK_IMAGE;
+          }}
         />
       </div>
     );

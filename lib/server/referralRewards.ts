@@ -283,6 +283,7 @@ export async function grantReferralRewardOnPurchase(
       purchase_id: purchaseId,
       buyer_email: buyerEmail,
       referrer_email: referrerEmail,
+      referral_code: referredByCode,
       reward_points: rewardPoints,
       created_at: new Date().toISOString(),
     };
@@ -294,7 +295,9 @@ export async function grantReferralRewardOnPurchase(
     const { data: insertedRow, error: insertError } = await client
       .from("referral_rewards")
       .insert(insertPayload)
-      .select("id, purchase_id, buyer_email, referrer_email, reward_points")
+      .select(
+        "id, purchase_id, buyer_email, referrer_email, referral_code, reward_points",
+      )
       .maybeSingle();
 
     if (insertError) {
